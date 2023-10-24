@@ -63,7 +63,8 @@ def dtype_to_meta(column, dtype):
     :rtype: dict
     """
     return {
-        "name": slugify(column, separator="_"),
+        "name": column,
+        "rename": slugify(column, separator="_"),
         "type": {
             "python": str(dtype),
             "psql": dtype_to_psql(dtype)
