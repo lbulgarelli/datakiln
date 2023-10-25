@@ -53,13 +53,15 @@ setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
-        "pandas>=2.1.0", "openpyxl>=3.1.0", "python-slugify>=8.0.0"
+        "pandas>=2.1.0", "openpyxl>=3.1.0", "python-slugify>=8.0.0",
+        "sqlalchemy>=2.0.0"
     ],
 
     # Add to site-packages
     entry_points={
         "console_scripts": [
             'build_json = data_utils.build_json:main',
+            'build_table = data_utils.build_table:main',
         ]
     },
 )
