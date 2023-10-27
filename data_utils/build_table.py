@@ -60,7 +60,8 @@ class TableMeta():
     """Metadata for table"""
     ROW_ID = "meta_row_id"
 
-    def __init__(self, name, columns, constraints, dialect, stage=False):
+    def __init__(self, name, columns, constraints, dialect, stage=False,
+                 encoding="utf-8"):
         """
         :param name: Name of the table.
         :type name: str
@@ -77,12 +78,16 @@ class TableMeta():
         :param stage: Is it a stage table?
         :type stage: bool
 
+        :param encoding: encoding of the data file.
+        :type stage: str
+
         :return: Table metadata.
         :rtype: data_utils.build_table.TableMeta
         """
         self.name = name
         self.columns = []
         self.primary_key = constraints["primary_key"]
+        self.encoding = encoding
 
         # Instantiate metadata object for all columns
         for column in columns:
@@ -131,7 +136,7 @@ class TableMeta():
         :return: None
         """
         # Get header from file
-        with open(data_path, "r") as file:
+        with open(data_path, "r", encoding=self.encoding) as file:
             reader = csv.reader(file)
             header = next(reader)
 
@@ -154,7 +159,7 @@ class TableMeta():
 
         # Execute statement
         cursor = conn.connection().connection.cursor()
-        with open(data_path, "r") as file:
+        with open(data_path, "r", encoding=self.encoding) as file:
             cursor.copy_expert(stmt, file)
 
 
