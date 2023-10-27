@@ -65,9 +65,8 @@ def dtype_to_meta(column, dtype):
     return {
         "name": column,
         "rename": slugify(column, separator="_"),
-        "type": {
-            "python": str(dtype),
-            "psql": dtype_to_psql(dtype)
+        "dtype": {
+            "postgresql": dtype_to_psql(dtype)
         }
     }
 
@@ -106,7 +105,7 @@ def main(args=None):
             "name": table_name,
             "columns": list(starmap(dtype_to_meta, data.dtypes.items())),
             "constraints": {
-                "primary_key": ""
+                "primary_key": [""]
             }
         }
 
