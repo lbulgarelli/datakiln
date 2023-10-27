@@ -17,6 +17,7 @@ from data_utils.build_json import get_parser
 class ColumnMeta():
     """Metadata for column."""
     def __init__(self, name, dtype, dialect, rename=None, stage=False):
+        # pylint: disable=too-many-arguments
         """
         :param name: Name of the column.
         :type name: str
@@ -62,6 +63,7 @@ class TableMeta():
 
     def __init__(self, name, columns, constraints, dialect, stage=False,
                  encoding="utf-8"):
+        # pylint: disable=too-many-arguments
         """
         :param name: Name of the table.
         :type name: str
