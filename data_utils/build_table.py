@@ -1,6 +1,7 @@
 """
 Creates table and loads data.
 """
+import csv
 import json
 from pathlib import Path
 from getpass import getuser
@@ -42,6 +43,9 @@ class ColumnMeta():
         # Do not inforce types in stage
         if stage is True:
             self.dtype = "TEXT"
+
+    def __str__(self):
+        return self.rename
 
     def create(self):
         """Column SQL for create statement.
@@ -99,20 +103,59 @@ class TableMeta():
         :param conn: SQLAlchemy connection or session.
         :type conn: sqlalchemy.Engine
         """
+        # Generate statement
         stmt = dedent("""
         CREATE TABLE {name} (
             {columns}
           , PRIMARY KEY({pk})
         )
         """)
-
         stmt = stmt.format(
             name=self.name,
             columns='\n  , '.join(map(ColumnMeta.create, self.columns)),
             pk=', '.join(self.primary_key)
         )
 
+        # Execute statement
         conn.execute(text(stmt))
+
+    def stage(self, conn, data_path):
+        """Stage data from a file.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :param data_path: Path to file.
+        :type data_path: str
+
+        :return: None
+        """
+        # Get header from file
+        with open(data_path, "r") as file:
+            reader = csv.reader(file)
+            header = next(reader)
+
+        # To load the data, we need to order
+        # the column list according to the file
+        columns = sorted(self.columns[:-1], key=lambda c: header.index(c.name))
+
+        # Generate statement
+        stmt = dedent("""
+        COPY {name} (
+            {columns}
+        )
+        FROM STDIN
+        WITH (FORMAT CSV, HEADER)
+        """)
+        stmt = stmt.format(
+            name=self.name,
+            columns='\n  , '.join(map(str, columns))
+        )
+
+        # Execute statement
+        cursor = conn.connection().connection.cursor()
+        with open(data_path, "r") as file:
+            cursor.copy_expert(stmt, file)
 
 
 def load_env(directory):
@@ -186,12 +229,16 @@ def main(args=None):
     # Load metadata
     with open(meta_path, encoding="utf-8") as file:
         meta_json = json.load(file)
-    meta = TableMeta(dialect=db_params["dialect"],
-                     stage=True,
-                     **meta_json)
 
-    # Create table
-    meta.create(conn)
+    # Stage data
+    stage_meta = TableMeta(
+        dialect=db_params["dialect"], stage=True,
+        **meta_json)
+    data_path = meta_path.parents[1] / "data" / (meta_path.stem + ".csv")
+    stage_meta.create(conn)
+    stage_meta.stage(conn, data_path)
+
+    # Commit changes
     conn.commit()
 
 
