@@ -103,6 +103,7 @@ def main(args=None):
         # Generate metadata
         meta = {
             "name": table_name,
+            "schema": "public",
             "columns": list(starmap(dtype_to_meta, data.dtypes.items())),
             "constraints": {
                 "primary_key": [""]

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from getpass import getuser
 from textwrap import dedent
+from functools import partial
 
 from sqlalchemy.orm.session import Session
 from sqlalchemy import create_engine, text
@@ -16,7 +17,7 @@ from data_utils.build_json import get_parser
 
 class ColumnMeta():
     """Metadata for column."""
-    def __init__(self, name, dtype, dialect, rename=None, stage=False):
+    def __init__(self, name, dtype, rename=None, is_stage=False):
         # pylint: disable=too-many-arguments
         """
         :param name: Name of the column.
@@ -24,9 +25,6 @@ class ColumnMeta():
 
         :param dtype: Type of the column for each dialect.
         :type dtype: dict
-
-        :param dialect: Dialect of the database.
-        :type dialect: str
 
         :param rename: Name to be used in the database.
         :type rename: str
@@ -38,31 +36,38 @@ class ColumnMeta():
         :rtype: data_utils.build_table.ColumnMeta
         """
         self.name = name
-        self.dtype = dtype[dialect]
+        self.dtype = dtype
         self.rename = rename or name
 
         # Do not inforce types in stage
-        if stage is True:
-            self.dtype = "TEXT"
+        if is_stage is True:
+            self.dtype = dict.fromkeys(dtype.keys(), "TEXT")
 
     def __str__(self):
         return self.rename
 
-    def create(self):
+    def __iter__(self):
+        for item in self.__dict__.items():
+            yield item
+
+    def create(self, dialect):
         """Column SQL for create statement.
+
+        :param dialect: Dialect of the database.
+        :type dialect: str
 
         :return: Column SQL for create statement.
         :rtype: str
         """
-        return f"{self.rename} {self.dtype}"
+        return f"{self.rename} {self.dtype[dialect]}"
 
 
 class TableMeta():
-    """Metadata for table"""
+    """Metadata for table."""
     ROW_ID = "meta_row_id"
 
-    def __init__(self, name, columns, constraints, dialect, stage=False,
-                 encoding="utf-8"):
+    def __init__(self, name, schema, columns,
+                 constraints=None, is_stage=False, encoding="utf-8"):
         # pylint: disable=too-many-arguments
         """
         :param name: Name of the table.
@@ -87,49 +92,85 @@ class TableMeta():
         :rtype: data_utils.build_table.TableMeta
         """
         self.name = name
+        self.schema = schema
         self.columns = []
-        self.primary_key = constraints["primary_key"]
         self.encoding = encoding
+        self._IS_STAGE = is_stage
 
         # Instantiate metadata object for all columns
         for column in columns:
-            self.columns.append(
-                ColumnMeta(**column, stage=stage, dialect=dialect))
+            self.columns.append(ColumnMeta(is_stage=is_stage, **column))
 
-        # Add autoincreasing rowid
-        self.columns.append(ColumnMeta(
-            self.ROW_ID, {dialect: "SERIAL"}, dialect))
+        # We do not enforce constraints in stage
+        if is_stage is True:
+            self.schema = f"stg_{self.schema}"
+            return
 
-        # Do not enforce constraints in stage
-        if stage is True:
-            self.primary_key = [self.ROW_ID]
+        self.primary_key = constraints["primary_key"]
+
+    @property
+    def _stage_meta(self):
+        """Metadata for stage table.
+
+        :return: Table metadata.
+        :rtype: data_utils.build_table.TableMeta
+
+        :return: None
+        """
+        if self._IS_STAGE is True:
+            raise TypeError("Cannot stage recursively.")
+
+        stage_meta = TableMeta(
+            name=self.name, schema=self.schema,
+            encoding=self.encoding, is_stage=True,
+            columns=list(map(dict, self.columns)))
+
+        return stage_meta
 
     def create(self, conn):
         """Create statement.
 
         :param conn: SQLAlchemy connection or session.
         :type conn: sqlalchemy.Engine
+
+        :return: None
         """
         # We replace the table if it already exists
-        conn.execute(text(f"DROP TABLE IF EXISTS {self.name}"))
+        conn.execute(text(f"DROP TABLE IF EXISTS {self.schema}.{self.name}"))
 
-        # Generate statement
+        # Get dialect from connection
+        dialect = conn.bind.dialect.name
+        create = partial(ColumnMeta.create, dialect=dialect)
+
+        # Create table
         stmt = dedent("""
-        CREATE TABLE {name} (
+        CREATE TABLE {schema}.{name} (
             {columns}
-          , PRIMARY KEY({pk})
+          , {row_id} SERIAL
         )
-        """)
-        stmt = stmt.format(
-            name=self.name,
-            columns='\n  , '.join(map(ColumnMeta.create, self.columns)),
-            pk=', '.join(self.primary_key)
+        """).format(
+            name=self.name, schema=self.schema, row_id=self.ROW_ID,
+            columns='\n  , '.join(map(create, self.columns)),
         )
-
-        # Execute statement
         conn.execute(text(stmt))
 
-    def stage(self, conn, data_path):
+        # We do not enforce constraints in stage
+        if self._IS_STAGE is True:
+            return
+
+        # Add constraints
+        stmt = dedent("""
+        ALTER TABLE {schema}.{name} ADD PRIMARY KEY ({pk})
+        """).format(
+            name=self.name, schema=self.schema,
+            pk=', '.join(self.primary_key)
+        )
+        conn.execute(text(stmt))
+
+        # Create stage as well
+        self._stage_meta.create(conn)
+
+    def _stage(self, conn, data_path):
         """Stage data from a file.
 
         :param conn: SQLAlchemy connection or session.
@@ -140,6 +181,9 @@ class TableMeta():
 
         :return: None
         """
+        if self._IS_STAGE is False:
+            raise TypeError("Cannot stage into final schema.")
+
         # Get header from file
         with open(data_path, "r", encoding=self.encoding) as file:
             reader = csv.reader(file)
@@ -147,25 +191,38 @@ class TableMeta():
 
         # To load the data, we need to order
         # the column list according to the file
-        columns = sorted(self.columns[:-1], key=lambda c: header.index(c.name))
+        columns = sorted(self.columns, key=lambda c: header.index(c.name))
 
         # Generate statement
         stmt = dedent("""
-        COPY {name} (
+        COPY {schema}.{name} (
             {columns}
         )
         FROM STDIN
         WITH (FORMAT CSV, HEADER)
-        """)
-        stmt = stmt.format(
-            name=self.name,
+        """).format(
+            name=self.name, schema=self.schema,
             columns='\n  , '.join(map(str, columns))
         )
 
-        # Execute statement
+        # Execute and copy from file
         cursor = conn.connection().connection.cursor()
         with open(data_path, "r", encoding=self.encoding) as file:
             cursor.copy_expert(stmt, file)
+
+    def load(self, conn, data_path):
+        """Load data from stage.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :param data_path: Path to file.
+        :type data_path: str
+
+        :return: None
+        """
+        # Stage data
+        self._stage_meta._stage(conn, data_path)
 
 
 def load_env(directory):
@@ -240,13 +297,11 @@ def main(args=None):
     with open(meta_path, encoding="utf-8") as file:
         meta_json = json.load(file)
 
-    # Stage data
-    stage_meta = TableMeta(
-        dialect=db_params["dialect"], stage=True,
-        **meta_json)
+    # Load data
+    table_meta = TableMeta(**meta_json)
     data_path = meta_path.parents[1] / "data" / (meta_path.stem + ".csv")
-    stage_meta.create(conn)
-    stage_meta.stage(conn, data_path)
+    table_meta.create(conn)
+    table_meta.load(conn, data_path)
 
     # Commit changes
     conn.commit()
