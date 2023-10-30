@@ -110,6 +110,9 @@ class TableMeta():
         :param conn: SQLAlchemy connection or session.
         :type conn: sqlalchemy.Engine
         """
+        # We replace the table if it already exists
+        conn.execute(text(f"DROP TABLE IF EXISTS {self.name}"))
+
         # Generate statement
         stmt = dedent("""
         CREATE TABLE {name} (
