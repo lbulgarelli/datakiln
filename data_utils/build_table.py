@@ -3,10 +3,10 @@ Creates table and loads data.
 """
 import csv
 import json
+import logging
 from pathlib import Path
 from getpass import getuser
 from textwrap import dedent
-from functools import partial
 
 from sqlalchemy.orm.session import Session
 from sqlalchemy import create_engine, text
@@ -15,9 +15,15 @@ from decouple import Config, RepositoryEnv, config
 from data_utils.build_json import get_parser
 
 
+logging.basicConfig(
+    level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S",
+    format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s")
+
+
 class ColumnMeta():
     """Metadata for column."""
-    def __init__(self, name, dtype, rename=None, is_stage=False):
+
+    def __init__(self, name, dtype, rename=None):
         # pylint: disable=too-many-arguments
         """
         :param name: Name of the column.
@@ -29,9 +35,6 @@ class ColumnMeta():
         :param rename: Name to be used in the database.
         :type rename: str
 
-        :param stage: Is it in a stage table?
-        :type stage: bool
-
         :return: Column metadata.
         :rtype: data_utils.build_table.ColumnMeta
         """
@@ -39,93 +42,45 @@ class ColumnMeta():
         self.dtype = dtype
         self.rename = rename or name
 
-        # Do not inforce types in stage
-        if is_stage is True:
-            self.dtype = dict.fromkeys(dtype.keys(), "TEXT")
-
     def __str__(self):
         return self.rename
 
     def __iter__(self):
         for item in self.__dict__.items():
+            if item[0].startswith("_"):
+                continue
             yield item
 
-    def create(self, dialect):
-        """Column SQL for create statement.
 
-        :param dialect: Dialect of the database.
-        :type dialect: str
-
-        :return: Column SQL for create statement.
-        :rtype: str
-        """
-        return f"{self.rename} {self.dtype[dialect]}"
-
-
-class TableMeta():
-    """Metadata for table."""
+class TableBase():
+    """Base metadata for table."""
     ROW_ID = "meta_row_id"
 
-    def __init__(self, name, schema, columns,
-                 constraints=None, is_stage=False, encoding="utf-8"):
-        # pylint: disable=too-many-arguments
+    def __init__(self, name, schema, columns, encoding="utf-8"):
         """
         :param name: Name of the table.
         :type name: str
 
+        :param schema: Name of the database schema.
+        :type schema: str
+
         :param columns: Metadata for table columns.
         :type columns: list[dict]
 
-        :param constraints: Metadata for table constraints.
-        :type constraints: dict
-
-        :param dialect: Dialect of the database.
-        :type dialect: str
-
-        :param stage: Is it a stage table?
-        :type stage: bool
-
         :param encoding: encoding of the data file.
-        :type stage: str
+        :type encoding: str
 
-        :return: Table metadata.
-        :rtype: data_utils.build_table.TableMeta
+        :return: Base table metadata.
+        :rtype: data_utils.build_table.TableBase
         """
         self.name = name
         self.schema = schema
         self.columns = []
         self.encoding = encoding
-        self._IS_STAGE = is_stage
 
         # Instantiate metadata object for all columns
         for column in columns:
-            self.columns.append(ColumnMeta(is_stage=is_stage, **column))
-
-        # We do not enforce constraints in stage
-        if is_stage is True:
-            self.schema = f"stg_{self.schema}"
-            return
-
-        self.primary_key = constraints["primary_key"]
-
-    @property
-    def _stage_meta(self):
-        """Metadata for stage table.
-
-        :return: Table metadata.
-        :rtype: data_utils.build_table.TableMeta
-
-        :return: None
-        """
-        if self._IS_STAGE is True:
-            raise TypeError("Cannot stage recursively.")
-
-        stage_meta = TableMeta(
-            name=self.name, schema=self.schema,
-            encoding=self.encoding, is_stage=True,
-            columns=list(map(dict, self.columns)))
-
-        return stage_meta
+            self.columns.append(ColumnMeta(**column))
 
     def create(self, conn):
         """Create statement.
@@ -138,39 +93,40 @@ class TableMeta():
         # We replace the table if it already exists
         conn.execute(text(f"DROP TABLE IF EXISTS {self.schema}.{self.name}"))
 
-        # Get dialect from connection
-        dialect = conn.bind.dialect.name
-        create = partial(ColumnMeta.create, dialect=dialect)
-
-        # Create table
+        # Creates table. All columns initially have TEXT type.
+        # Types are enforced after loading the data one column
+        # at a time so we can identify the specific column
+        # in the data that might be violating its type specification.
+        # The copy command would otherwise issue unhelpful log message.
         stmt = dedent("""
         CREATE TABLE {schema}.{name} (
-            {columns}
+            {columns} TEXT
           , {row_id} SERIAL
         )
         """).format(
             name=self.name, schema=self.schema, row_id=self.ROW_ID,
-            columns='\n  , '.join(map(create, self.columns)),
+            columns=' TEXT\n  , '.join(map(str, self.columns)),
         )
         conn.execute(text(stmt))
 
-        # We do not enforce constraints in stage
-        if self._IS_STAGE is True:
-            return
 
-        # Add constraints
-        stmt = dedent("""
-        ALTER TABLE {schema}.{name} ADD PRIMARY KEY ({pk})
-        """).format(
-            name=self.name, schema=self.schema,
-            pk=', '.join(self.primary_key)
-        )
-        conn.execute(text(stmt))
+class StageMeta(TableBase):
+    """Metadata for table."""
+    # pylint: disable=too-few-public-methods
 
-        # Create stage as well
-        self._stage_meta.create(conn)
+    def __init__(self, **kwargs):
+        r"""
+        :param \**kwargs: data_utils.build_table.TableBase attributes.
+        :type \**kwargs: dict
 
-    def _stage(self, conn, data_path):
+        :return: Table metadata.
+        :rtype: data_utils.build_table.TableMeta
+        """
+        super().__init__(**kwargs)
+
+        self.schema = f"stg_{self.schema}"
+
+    def load(self, conn, data_path):
         """Stage data from a file.
 
         :param conn: SQLAlchemy connection or session.
@@ -181,8 +137,7 @@ class TableMeta():
 
         :return: None
         """
-        if self._IS_STAGE is False:
-            raise TypeError("Cannot stage into final schema.")
+        logging.info("Table '%s'.'%s': Staging.", self.schema[4:], self.name)
 
         # Get header from file
         with open(data_path, "r", encoding=self.encoding) as file:
@@ -210,6 +165,67 @@ class TableMeta():
         with open(data_path, "r", encoding=self.encoding) as file:
             cursor.copy_expert(stmt, file)
 
+        # Add column to log staging errors
+        conn.execute(text(
+            f"ALTER TABLE {self.schema}.{self.name} ADD COLUMN meta_log TEXT"))
+
+
+class TableMeta(TableBase):
+    """Metadata for table."""
+
+    def __init__(self, constraints=None, **kwargs):
+        r"""
+        :param constraints: Metadata for table constraints.
+        :type constraints: dict
+
+        :param \**kwargs: data_utils.build_table.TableBase attributes.
+        :type \**kwargs: dict
+
+        :return: Table metadata.
+        :rtype: data_utils.build_table.TableMeta
+        """
+        super().__init__(**kwargs)
+
+        self.primary_key = constraints["primary_key"]
+
+    @property
+    def _stage_meta(self):
+        """Metadata for stage table.
+
+        :return: Table metadata.
+        :rtype: data_utils.build_table.TableMeta
+
+        :return: None
+        """
+        stage_meta = StageMeta(
+            name=self.name, schema=self.schema,
+            encoding=self.encoding,
+            columns=list(map(dict, self.columns)))
+
+        return stage_meta
+
+    def create(self, conn):
+        """Create statement.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :return: None
+        """
+        super().create(conn)
+
+        # Add constraints
+        stmt = dedent("""
+        ALTER TABLE {schema}.{name} ADD PRIMARY KEY ({pk})
+        """).format(
+            name=self.name, schema=self.schema,
+            pk=', '.join(self.primary_key)
+        )
+        conn.execute(text(stmt))
+
+        # Create stage as well
+        self._stage_meta.create(conn)
+
     def load(self, conn, data_path):
         """Load data from stage.
 
@@ -222,7 +238,64 @@ class TableMeta():
         :return: None
         """
         # Stage data
-        self._stage_meta._stage(conn, data_path)
+        self._stage_meta.load(conn, data_path)
+
+        logging.info("Table '%s'.'%s': Loading.", self.schema, self.name)
+        stmt = dedent("""
+        WITH moving AS (
+          SELECT
+              {columns}
+            , {row_id}
+          FROM stg_{schema}.{name}
+        )
+        , moved AS (
+          INSERT INTO {schema}.{name} (
+              {columns}
+            , {row_id}
+          )
+          SELECT *
+          FROM moving
+          ON CONFLICT DO NOTHING
+          RETURNING {row_id}
+        )
+        , delete AS (
+          DELETE FROM stg_{schema}.{name}
+          USING moved
+          WHERE {name}.meta_row_id = moved.meta_row_id
+          RETURNING {name}.{row_id}
+        )
+        , duplicate AS (
+          UPDATE stg_{schema}.{name}
+          SET meta_log = 'Duplicate'
+          FROM moving
+          WHERE {name}.meta_row_id = moving.meta_row_id
+        )
+        SELECT * FROM delete
+        """).format(
+            name=self.name, schema=self.schema, row_id=self.ROW_ID,
+            columns='\n    , '.join(map(str, self.columns))
+        )
+        conn.execute(text(stmt))
+
+        # Get database dialect from connection
+        dialect = conn.bind.dialect.name
+
+        # Enforce data types
+        for column in self.columns:
+            stmt = dedent(f"""
+            ALTER TABLE {self.schema}.{self.name}
+            ALTER COLUMN {column} TYPE {column.dtype[dialect]}
+            USING {column}::{column.dtype[dialect]}
+            """)
+            conn.execute(text(stmt))
+
+        # Warn of any remaining staged records
+        count = conn.execute(text(
+            f"SELECT COUNT(*) FROM stg_{self.schema}.{self.name}"
+        )).first()[0]
+        if count > 0:
+            logging.warning("Table '%s'.'%s': %d rows remain staged.",
+                            self.schema, self.name, count)
 
 
 def load_env(directory):
