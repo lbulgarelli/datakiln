@@ -62,6 +62,7 @@ setup(
         "console_scripts": [
             'build_json = data_utils.build_json:main',
             'build_table = data_utils.build_table:main',
+            'build_database = data_utils.build_database:main',
         ]
     },
 )
