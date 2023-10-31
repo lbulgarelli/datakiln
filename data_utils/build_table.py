@@ -126,6 +126,10 @@ class StageMeta(TableBase):
 
         self.schema = f"stg_{self.schema}"
 
+        # Do not inforce types in stage
+        for column in self.columns:
+            column.dtype = dict.fromkeys(column.dtype.keys(), "TEXT")
+
     def load(self, conn, data_path):
         """Stage data from a file.
 
