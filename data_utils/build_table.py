@@ -1,7 +1,6 @@
 """
 Creates table and loads data.
 """
-import csv
 import json
 import logging
 from pathlib import Path
@@ -13,6 +12,7 @@ from sqlalchemy import create_engine, text
 from decouple import Config, RepositoryEnv, config
 
 from data_utils.build_json import get_parser
+from data_utils.io import open_excel
 
 
 logging.basicConfig(
@@ -24,7 +24,6 @@ class ColumnMeta():
     """Metadata for column."""
 
     def __init__(self, name, dtype, rename=None):
-        # pylint: disable=too-many-arguments
         """
         :param name: Name of the column.
         :type name: str
@@ -36,7 +35,7 @@ class ColumnMeta():
         :type rename: str
 
         :return: Column metadata.
-        :rtype: data_utils.build_table.ColumnMeta
+        :rtype: ColumnMeta
         """
         self.name = name
         self.dtype = dtype
@@ -54,7 +53,8 @@ class ColumnMeta():
 
 class TableBase():
     """Base metadata for table."""
-    ROW_ID = "meta_row_id"
+    # pylint: disable=too-few-public-methods
+    _row_id = "meta_row_id"
 
     def __init__(self, name, schema, columns, encoding="utf-8"):
         """
@@ -71,7 +71,7 @@ class TableBase():
         :type encoding: str
 
         :return: Base table metadata.
-        :rtype: data_utils.build_table.TableBase
+        :rtype: TableBase
         """
         self.name = name
         self.schema = schema
@@ -104,7 +104,7 @@ class TableBase():
           , {row_id} SERIAL
         )
         """).format(
-            name=self.name, schema=self.schema, row_id=self.ROW_ID,
+            name=self.name, schema=self.schema, row_id=self._row_id,
             columns=' TEXT\n  , '.join(map(str, self.columns)),
         )
         conn.execute(text(stmt))
@@ -112,15 +112,18 @@ class TableBase():
 
 class StageMeta(TableBase):
     """Metadata for table."""
-    # pylint: disable=too-few-public-methods
+    _readers = {
+        ".csv": open,
+        ".xlsx": open_excel
+    }
 
     def __init__(self, **kwargs):
         r"""
-        :param \**kwargs: data_utils.build_table.TableBase attributes.
+        :param \**kwargs: TableBase attributes.
         :type \**kwargs: dict
 
         :return: Table metadata.
-        :rtype: data_utils.build_table.TableMeta
+        :rtype: TableMeta
         """
         super().__init__(**kwargs)
 
@@ -144,9 +147,9 @@ class StageMeta(TableBase):
         logging.info("Table '%s'.'%s': Staging.", self.schema[4:], self.name)
 
         # Get header from file
-        with open(data_path, "r", encoding=self.encoding) as file:
-            reader = csv.reader(file)
-            header = next(reader)
+        reader = self._readers[data_path.suffix]
+        buffer = reader(data_path, encoding=self.encoding)
+        header = next(buffer)
 
         # To load the data, we need to order
         # the column list according to the file
@@ -158,7 +161,7 @@ class StageMeta(TableBase):
             {columns}
         )
         FROM STDIN
-        WITH (FORMAT CSV, HEADER)
+        WITH (FORMAT CSV)
         """).format(
             name=self.name, schema=self.schema,
             columns='\n  , '.join(map(str, columns))
@@ -166,8 +169,8 @@ class StageMeta(TableBase):
 
         # Execute and copy from file
         cursor = conn.connection().connection.cursor()
-        with open(data_path, "r", encoding=self.encoding) as file:
-            cursor.copy_expert(stmt, file)
+        cursor.copy_expert(stmt, buffer)
+        buffer.close()
 
         # Add column to log staging errors
         conn.execute(text(
@@ -182,11 +185,11 @@ class TableMeta(TableBase):
         :param constraints: Metadata for table constraints.
         :type constraints: dict
 
-        :param \**kwargs: data_utils.build_table.TableBase attributes.
+        :param \**kwargs: TableBase attributes.
         :type \**kwargs: dict
 
         :return: Table metadata.
-        :rtype: data_utils.build_table.TableMeta
+        :rtype: .TableMeta
         """
         super().__init__(**kwargs)
 
@@ -197,7 +200,7 @@ class TableMeta(TableBase):
         """Metadata for stage table.
 
         :return: Table metadata.
-        :rtype: data_utils.build_table.TableMeta
+        :rtype: TableMeta
 
         :return: None
         """
@@ -276,7 +279,7 @@ class TableMeta(TableBase):
         )
         SELECT * FROM delete
         """).format(
-            name=self.name, schema=self.schema, row_id=self.ROW_ID,
+            name=self.name, schema=self.schema, row_id=self._row_id,
             columns='\n    , '.join(map(str, self.columns))
         )
         conn.execute(text(stmt))
@@ -374,11 +377,13 @@ def main(args=None):
     with open(meta_path, encoding="utf-8") as file:
         meta_json = json.load(file)
 
-    # Load data
+    # Create table
     table_meta = TableMeta(**meta_json)
-    data_path = meta_path.parents[1] / "data" / (meta_path.stem + ".csv")
     table_meta.create(conn)
-    table_meta.load(conn, data_path)
+
+    # Load data
+    data_path = (meta_path.parents[1] / "data").glob(f"{meta_path.stem}.*")
+    table_meta.load(conn, next(data_path))
 
     # Commit changes
     conn.commit()
