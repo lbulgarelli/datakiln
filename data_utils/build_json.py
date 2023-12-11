@@ -4,6 +4,7 @@ Generate metadata from data file.
 import json
 from pathlib import Path
 from itertools import starmap
+from functools import partial
 from argparse import ArgumentParser
 
 import pandas as pd
@@ -11,8 +12,8 @@ from slugify import slugify
 
 
 SUPPORTED_EXTENSIONS = {
-    ".csv": pd.read_csv,
-    ".xlsx": pd.read_excel
+    ".csv": partial(pd.read_csv, verbose=True),
+    ".xlsx": partial(pd.read_excel, sheet_name=None, verbose=True)
 }
 
 
@@ -71,6 +72,42 @@ def dtype_to_meta(column, dtype):
     }
 
 
+def generate_meta(meta_dir, table_name, data):
+    """Generates metadata for column from tuple.
+
+    :param meta_dir: Medatada directory.
+    :type meta_dir: Path
+
+    :param table_name: Name of the table.
+    :type table_name: str
+
+    :param data: DataFrame containing sample data for the table.
+    :type data: pd.DataFrame
+
+    :return: None
+    """
+    # Ensure table name is database friendly
+    table_name = slugify(table_name, separator="_")
+
+    # Remove trailing white spaces from data
+    data = data.map(lambda x: x.strip() if isinstance(x, str) else x)
+
+    # Generate metadata
+    meta = {
+        "name": table_name,
+        "schema": "public",
+        "columns": list(starmap(dtype_to_meta, data.dtypes.items())),
+        "constraints": {
+            "primary_key": [""]
+        }
+    }
+
+    # Write metadata to file
+    meta_path = meta_dir / f"{table_name}.json"
+    with open(meta_path, "w", encoding="utf-8") as file:
+        json.dump(meta, file, indent=4)
+
+
 def main(args=None):
     """Generates metadata from data file."""
     # Get arguments
@@ -92,28 +129,28 @@ def main(args=None):
             continue
 
         # Read file
-        data = SUPPORTED_EXTENSIONS[extension](data_path.absolute())
+        data = SUPPORTED_EXTENSIONS[extension](io=data_path.absolute())
 
-        # Remove trailing white spaces from data
-        data = data.map(lambda x: x.strip() if isinstance(x, str) else x)
+        # Excel files can have more than one sheet
+        # so we handle the data as a dictionary
+        if isinstance(data, pd.DataFrame):
+            data = {data_path.stem: data}
+        # Only consider tables with header row
+        # when multiple tables are returned
+        elif isinstance(data, dict):
+            data = {
+                name: df
+                for name, df in data.items()
+                if not df.columns.str.startswith("Unnamed:").all()
+            }
 
-        # Generate table name from file
-        table_name = slugify(data_path.stem, separator="_")
+            # If only one table is left, use file name
+            if len(data) == 1:
+                data = {data_path.stem: list(data.values())[0]}
 
         # Generate metadata
-        meta = {
-            "name": table_name,
-            "schema": "public",
-            "columns": list(starmap(dtype_to_meta, data.dtypes.items())),
-            "constraints": {
-                "primary_key": [""]
-            }
-        }
-
-        # Write metadata to file
-        meta_path = meta_dir / f"{table_name}.json"
-        with open(meta_path, "w", encoding="utf-8") as file:
-            json.dump(meta, file, indent=4)
+        for table_name, df in data.items():
+            generate_meta(meta_dir, table_name, df)
 
 
 if __name__ == "__main__":
