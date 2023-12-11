@@ -5,6 +5,8 @@ import json
 import logging
 from pathlib import Path
 
+from sqlalchemy import text
+
 from data_utils.build_json import get_parser
 from data_utils.build_table import load_env, connect, TableMeta
 
@@ -40,6 +42,23 @@ def main(args=None):
         # Load data
         data_path = (directory / "data").glob(f"{meta_path.stem}.*")
         table_meta.load(conn, next(data_path))
+
+        # Flush to database
+        conn.flush()
+
+    # Run views
+    for file_name in sorted((directory / "views").glob("*.sql")):
+        logging.info("Script '%s': RUNNING", file_name.stem)
+
+        # Load file
+        with open(file_name, "r", encoding="utf-8") as file:
+            sql = text(file.read())
+
+        # Execute query
+        conn.execute(sql)
+
+        # Flush to database
+        conn.flush()
 
     # Commit changes
     conn.commit()
