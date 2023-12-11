@@ -90,6 +90,9 @@ class TableBase():
 
         :return: None
         """
+        # Create the schema if it does not exists
+        conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {self.schema}"))
+
         # We replace the table if it already exists
         conn.execute(text(f"DROP TABLE IF EXISTS {self.schema}.{self.name}"))
 
