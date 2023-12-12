@@ -1,11 +1,13 @@
 """
 Creates table and loads data.
 """
+import re
 import json
 import logging
 from pathlib import Path
 from getpass import getuser
 from textwrap import dedent
+from dataclasses import dataclass
 
 from sqlalchemy.orm.session import Session
 from sqlalchemy import create_engine, text
@@ -49,6 +51,67 @@ class ColumnMeta():
             if item[0].startswith("_"):
                 continue
             yield item
+
+
+@dataclass
+class ForeignKeyReference:
+    """Metadata for table referenced in foreign key.
+
+    :param schema: Schema of foreign table.
+    :type schema: str
+
+    :param table: Table referenced by foreign key.
+    :type table: str
+
+    :param columns: Columns referenced by foreign key.
+    :type columns: str
+    """
+    schema: str
+    table: str
+    columns: list
+
+
+class ForeignKeyMeta():
+    """Metadata for foreign key."""
+    # pylint: disable=too-few-public-methods
+
+    def __init__(self, table, columns, reference):
+        """
+        :param table: Table referencing the foreign key.
+        :type table: str
+
+        :param columns: Columns referencing the foreign key.
+        :type columns: str
+
+        :param reference: Metadata for referenced table and columns.
+        :type reference: dict
+
+        :return: Foreign key metadata.
+        :rtype: ForeignKeyMeta
+        """
+        self.table = table
+        self.columns = columns
+        self.reference = ForeignKeyReference(**reference)
+
+    def create(self, conn):
+        """Create statement.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :return: None
+        """
+        stmt = dedent("""
+        ALTER TABLE {schema}.{table}
+        ADD FOREIGN KEY ({columns})
+        REFERENCES {schema}.{table} ({reference})
+        """).format(
+            columns=", ".join(self.columns),
+            schema=self.reference.schema,
+            table=self.reference.table,
+            reference=", ".join(self.reference.columns)
+        )
+        conn.execute(text(stmt))
 
 
 class TableBase():
@@ -176,8 +239,9 @@ class StageMeta(TableBase):
         buffer.close()
 
         # Add column to log staging errors
-        conn.execute(text(
-            f"ALTER TABLE {self.schema}.{self.name} ADD COLUMN meta_log TEXT"))
+        conn.execute(text(f"""
+        ALTER TABLE {self.schema}.{self.name} ADD COLUMN meta_log TEXT
+        """))
 
 
 class TableMeta(TableBase):
@@ -197,6 +261,12 @@ class TableMeta(TableBase):
         super().__init__(**kwargs)
 
         self.primary_key = constraints["primary_key"]
+        self.foreign_keys = []
+
+        # Instantiate metadata object for all foreign keys
+        for fk in constraints.get("foreign_keys", []):
+            fk_meta = ForeignKeyMeta(table=self.name, **fk)
+            self.foreign_keys.append(fk_meta)
 
     @property
     def _stage_meta(self):
@@ -224,7 +294,7 @@ class TableMeta(TableBase):
         """
         super().create(conn)
 
-        # Add constraints
+        # Add primary key
         stmt = dedent("""
         ALTER TABLE {schema}.{name} ADD PRIMARY KEY ({pk})
         """).format(
@@ -299,13 +369,19 @@ class TableMeta(TableBase):
             """)
             conn.execute(text(stmt))
 
+        # Enforce foreign keys
+        for fk in self.foreign_keys:
+            fk.create(conn)
+
         # Warn of any remaining staged records
-        count = conn.execute(text(
-            f"SELECT COUNT(*) FROM stg_{self.schema}.{self.name}"
-        )).first()[0]
+        count = conn.execute(text(f"""
+        SELECT COUNT(*) FROM stg_{self.schema}.{self.name}
+        """)).first()[0]
         if count > 0:
-            logging.warning("Table '%s'.'%s': %d rows remain staged.",
-                            self.schema, self.name, count)
+            logging.warning(
+                "Table '%s'.'%s': %d rows remain staged.",
+                self.schema, self.name, count
+            )
 
 
 def load_env(directory):
@@ -363,6 +439,21 @@ def connect(user, host, port, database, dialect):
     return Session(bind=con)
 
 
+def build(meta_path, conn):
+    # Load metadata
+    with open(meta_path, encoding="utf-8") as file:
+        meta_json = json.load(file)
+
+    # Create table
+    table_meta = TableMeta(**meta_json)
+    table_meta.create(conn)
+
+    # Load data
+    meta_name = re.sub(r"^\d\d-", "", meta_path.stem)
+    data_path = (meta_path.parents[1] / "data").glob(f"{meta_name}.*")
+    table_meta.load(conn, next(data_path))
+
+
 def main(args=None):
     """Creates table and loads data."""
     # Get arguments
@@ -376,19 +467,8 @@ def main(args=None):
     db_params = load_env(meta_path.parents[1])
     conn = connect(**db_params)
 
-    # Load metadata
-    with open(meta_path, encoding="utf-8") as file:
-        meta_json = json.load(file)
-
-    # Create table
-    table_meta = TableMeta(**meta_json)
-    table_meta.create(conn)
-
-    # Load data
-    data_path = (meta_path.parents[1] / "data").glob(f"{meta_path.stem}.*")
-    table_meta.load(conn, next(data_path))
-
-    # Commit changes
+    # Build and commit changes
+    build(meta_path, conn)
     conn.commit()
 
 

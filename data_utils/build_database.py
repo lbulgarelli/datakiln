@@ -1,14 +1,13 @@
 """
 Creates table and loads data.
 """
-import json
 import logging
 from pathlib import Path
 
 from sqlalchemy import text
 
 from data_utils.build_json import get_parser
-from data_utils.build_table import load_env, connect, TableMeta
+from data_utils.build_table import load_env, connect, build
 
 
 logging.basicConfig(
@@ -31,19 +30,8 @@ def main(args=None):
 
     # Iterate through all table metadata
     for meta_path in (directory / "metadata").glob("*.json"):
-        # Load metadata
-        with open(meta_path, encoding="utf-8") as file:
-            meta_json = json.load(file)
-
-        # Create table
-        table_meta = TableMeta(**meta_json)
-        table_meta.create(conn)
-
-        # Load data
-        data_path = (directory / "data").glob(f"{meta_path.stem}.*")
-        table_meta.load(conn, next(data_path))
-
-        # Flush to database
+        # Build and flush to database
+        build(meta_path, conn)
         conn.flush()
 
     # Run views
