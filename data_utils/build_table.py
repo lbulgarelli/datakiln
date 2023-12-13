@@ -303,7 +303,7 @@ class TableMeta(TableBase):
             self.foreign_keys.append(fk_meta)
 
     @property
-    def _stage_meta(self):
+    def stage_meta(self):
         """Metadata for stage table.
 
         :return: Table metadata.
@@ -338,22 +338,16 @@ class TableMeta(TableBase):
         conn.execute(text(stmt))
 
         # Create stage as well
-        self._stage_meta.create(conn)
+        self.stage_meta.create(conn)
 
-    def load(self, conn, data_path):
+    def load(self, conn):
         """Load data from stage.
 
         :param conn: SQLAlchemy connection or session.
         :type conn: sqlalchemy.Engine
 
-        :param data_path: Path to file.
-        :type data_path: str
-
         :return: None
         """
-        # Stage data
-        self._stage_meta.load(conn, data_path)
-
         # Generate JOIN statements for foreign keys
         join_fks = map(ForeignKeyMeta.join, self.foreign_keys)
 
@@ -492,7 +486,7 @@ def connect(user, host, port, database, dialect):
     return Session(bind=con)
 
 
-def build(meta_path, conn):
+def stage(meta_path, conn):
     # Load metadata
     with open(meta_path, encoding="utf-8") as file:
         meta_json = json.load(file)
@@ -501,10 +495,12 @@ def build(meta_path, conn):
     table_meta = TableMeta(**meta_json)
     table_meta.create(conn)
 
-    # Load data
+    # Stage data
     meta_name = re.sub(r"^\d\d-", "", meta_path.stem)
     data_path = (meta_path.parents[1] / "data").glob(f"{meta_name}.*")
-    table_meta.load(conn, next(data_path))
+    table_meta.stage_meta.load(conn, next(data_path))
+
+    return table_meta
 
 
 def main(args=None):
@@ -520,8 +516,9 @@ def main(args=None):
     db_params = load_env(meta_path.parents[1])
     conn = connect(**db_params)
 
-    # Build and commit changes
-    build(meta_path, conn)
+    # Load to final schema and commit changes
+    table_meta = stage(meta_path, conn)
+    table_meta.load(conn)
     conn.commit()
 
 
