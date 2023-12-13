@@ -29,7 +29,7 @@ def main(args=None):
     conn = connect(**db_params)
 
     # Iterate through all table metadata
-    for meta_path in (directory / "metadata").glob("*.json"):
+    for meta_path in sorted((directory / "metadata").glob("*.json")):
         # Build and flush to database
         build(meta_path, conn)
         conn.flush()
