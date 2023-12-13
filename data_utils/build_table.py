@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from getpass import getuser
 from textwrap import dedent
+from itertools import chain
 from dataclasses import dataclass
 
 from sqlalchemy.orm.session import Session
@@ -73,7 +74,6 @@ class ForeignKeyReference:
 
 class ForeignKeyMeta():
     """Metadata for foreign key."""
-    # pylint: disable=too-few-public-methods
 
     def __init__(self, table, columns, reference):
         """
@@ -112,6 +112,40 @@ class ForeignKeyMeta():
             reference=", ".join(self.reference.columns)
         )
         conn.execute(text(stmt))
+
+    def conditions(self):
+        """Generate comparisons to match each foreign key column.
+
+        :return: Comparisons for each foreign key column.
+        :rtype: list[str]
+        """
+        conditions = []
+
+        # Generate one comparison statement for each foreign key column
+        for column, o_column in zip(self.columns, self.reference.columns):
+            conditions.append(
+                f"  AND {self.table}.{column} = "
+                f"{self.reference.table}.{o_column}::TEXT"
+            )
+
+        # Remove AND clause from first comparison
+        conditions[0] = conditions[0][5:]
+
+        return conditions
+
+    def join(self):
+        """Generate JOIN statement for the foreign key.
+
+        :return: JOIN statement.
+        :rtype: list[str]
+        """
+        join = [f"JOIN {self.reference.schema}.{self.reference.table}"]
+        join.extend(self.conditions())
+
+        # Add ON clause to first comparison
+        join[1] = "  ON" + join[1]
+
+        return join
 
 
 class TableBase():
@@ -320,13 +354,21 @@ class TableMeta(TableBase):
         # Stage data
         self._stage_meta.load(conn, data_path)
 
+        # Generate JOIN statements for foreign keys
+        join_fks = map(ForeignKeyMeta.join, self.foreign_keys)
+
+        # Generate list of columns
+        columns = list(map(str, self.columns))
+
+        # Move rows from staging to final schema
         logging.info("Table '%s'.'%s': Loading.", self.schema, self.name)
         stmt = dedent("""
         WITH moving AS (
           SELECT
-              {columns}
-            , {row_id}
+              {name}.{columns_aliased}
+            , {name}.{row_id}
           FROM stg_{schema}.{name}
+          {join_fks}
         )
         , moved AS (
           INSERT INTO {schema}.{name} (
@@ -353,8 +395,19 @@ class TableMeta(TableBase):
         SELECT * FROM delete
         """).format(
             name=self.name, schema=self.schema, row_id=self._row_id,
-            columns='\n    , '.join(map(str, self.columns))
+            columns_aliased=f"\n    , {self.name}.".join(columns),
+            columns="\n    , ".join(columns),
+            join_fks="\n  ".join(chain(*join_fks))
         )
+        conn.execute(text(stmt))
+
+        # The remaining rows that were not moved from staging
+        # violated a foreign key constraint
+        stmt = dedent(f"""
+        UPDATE stg_{self.schema}.{self.name}
+        SET meta_log = 'Constraint violation (foreign key)'
+        WHERE meta_log IS NULL
+        """)
         conn.execute(text(stmt))
 
         # Get database dialect from connection
