@@ -249,7 +249,7 @@ class StageMeta(TableBase):
         # Get header from file
         reader = self._readers[data_path.suffix]
         buffer = reader(data_path, encoding=self.encoding)
-        header = next(buffer)
+        header = next(buffer).replace("\n", "").split(",")
 
         # To load the data, we need to order
         # the column list according to the file
