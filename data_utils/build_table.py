@@ -191,7 +191,8 @@ class TableBase():
         conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {self.schema}"))
 
         # We replace the table if it already exists
-        conn.execute(text(f"DROP TABLE IF EXISTS {self.schema}.{self.name}"))
+        conn.execute(text(
+            f"DROP TABLE IF EXISTS {self.schema}.{self.name} CASCADE"))
 
         # Creates table. All columns initially have TEXT type.
         # Types are enforced after loading the data one column
