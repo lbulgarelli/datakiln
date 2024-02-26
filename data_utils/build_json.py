@@ -51,7 +51,7 @@ def get_parser():
     return parser
 
 
-def dtype_to_meta(column, dtype):
+def dtype_to_meta(column, dtype, description = None, required = False):
     """Generates metadata for column from tuple.
 
     :param column: Column name as it is in data file.
@@ -60,12 +60,20 @@ def dtype_to_meta(column, dtype):
     :param dtype: Type inferred by pandas.
     :type dtype: type
 
+    :param description: Description of the column.
+    :type description: str
+
+    :param required: If True, column can't be NULL.
+    :type required: boolean
+
     :return: Column metadata.
     :rtype: dict
     """
     return {
         "name": column,
         "rename": slugify(column, separator="_"),
+        "description": description,
+        "required": required,
         "dtype": {
             "postgresql": dtype_to_psql(dtype)
         }
@@ -96,9 +104,10 @@ def generate_meta(meta_dir, table_name, data):
     meta = {
         "name": table_name,
         "schema": "public",
+        "encoding": "utf-8",
         "columns": list(starmap(dtype_to_meta, data.dtypes.items())),
         "constraints": {
-            "primary_key": [""]
+            "primary_key": ["meta_row_id"]
         }
     }
 

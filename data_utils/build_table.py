@@ -26,13 +26,19 @@ logging.basicConfig(
 class ColumnMeta():
     """Metadata for column."""
 
-    def __init__(self, name, dtype, rename=None):
+    def __init__(self, name, dtype, description, required, rename=None):
         """
         :param name: Name of the column.
         :type name: str
 
         :param dtype: Type of the column for each dialect.
         :type dtype: dict
+        
+        :param description: Description of the column.
+        :type rename: str
+
+        :param required: Column can't be NULL.
+        :type rename: boolean
 
         :param rename: Name to be used in the database.
         :type rename: str
@@ -43,6 +49,8 @@ class ColumnMeta():
         self.name = name
         self.dtype = dtype
         self.rename = rename or name
+        self.description = description
+        self.required = required
 
     def __str__(self):
         return self.rename
@@ -408,6 +416,13 @@ class TableMeta(TableBase):
         # Get database dialect from connection
         dialect = conn.bind.dialect.name
 
+        # Enforce foreign keys
+        for fk in self.foreign_keys:
+            fk.create(conn)
+
+        # TODO: Add enforce data comment and required as functions of ColumnMeta
+        # TODO: Fix enforce data type error
+
         # Enforce data types
         for column in self.columns:
             stmt = dedent(f"""
@@ -417,10 +432,25 @@ class TableMeta(TableBase):
             """)
             conn.execute(text(stmt))
 
-        # Enforce foreign keys
-        for fk in self.foreign_keys:
-            fk.create(conn)
+        # Comment on columns
+        for column in self.columns:
+            if column.description is not None:
+                stmt = dedent(f"""
+                COMMENT ON COLUMN {self.schema}.{self.name}.{column} IS '{column.description}'
+                """)
+                conn.execute(text(stmt))
 
+        # TODO: Fix for null data being sent
+        
+        # Set required param for columns
+        for column in self.columns:
+            if column.required:
+                stmt = dedent(f"""
+                ALTER TABLE {self.schema}.{self.name}
+                ALTER COLUMN {column} SET NOT NULL
+                """)
+                conn.execute(text(stmt))
+        
         # Warn of any remaining staged records
         count = conn.execute(text(f"""
         SELECT COUNT(*) FROM stg_{self.schema}.{self.name}
@@ -532,6 +562,8 @@ def main(args=None):
     table_meta.load(conn)
     conn.commit()
 
+    # Close connection
+    conn.close()
 
 if __name__ == "__main__":
     main()
