@@ -35,10 +35,10 @@ class ColumnMeta():
         :type dtype: dict
         
         :param description: Description of the column.
-        :type rename: str
+        :type description: str
 
-        :param required: Column can't be NULL.
-        :type rename: boolean
+        :param required: If True, column can't be NULL.
+        :type required: boolean
 
         :param rename: Name to be used in the database.
         :type rename: str
