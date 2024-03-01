@@ -61,6 +61,28 @@ class ColumnMeta():
                 continue
             yield item
 
+    def enforce_type(self,conn,schema,name,dialect):
+        stmt = dedent(f"""
+        ALTER TABLE {schema}.{name}
+        ALTER COLUMN {self.name} TYPE {self.dtype[dialect]}
+        USING {self.name}::{self.dtype[dialect]}
+        """)
+        conn.execute(text(stmt))
+
+    def enforce_required(self, conn, schema, name):
+        stmt = dedent(f"""
+        ALTER TABLE {schema}.{name}
+        ALTER COLUMN {self.name} SET NOT NULL
+        """)
+        conn.execute(text(stmt))
+
+    def comment(self,conn,schema,name):
+        stmt = dedent(f"""
+        COMMENT ON COLUMN {schema}.{name}.{self.name} IS '{self.description}'
+        """)
+        conn.execute(text(stmt))
+    
+
 
 @dataclass
 class ForeignKeyReference:
@@ -363,8 +385,42 @@ class TableMeta(TableBase):
         # Generate list of columns
         columns = list(map(str, self.columns))
 
+        # Generate list of required columns
+        req_col = []
+        for column in self.columns:
+            if column.required == True:
+                req_col.append(True)
+            else:
+                req_col.append(False)
+
+        # Header of required statement
+        req_stmt = dedent(f"""
+                , required AS (
+                  UPDATE stg_{self.schema}.{self.name}
+                  SET meta_log = 'Required'
+                  FROM moving
+                  WHERE """)
+
+        # Add required columns to required statement based on req_col
+        for idx,column in enumerate(self.columns):
+
+            # If column is required and more than one required columns 
+            if column.required == True and sum(req_col) > 1:
+                req_col[idx] = False
+                req_stmt = req_stmt+dedent(f"""{self.name}.{column} IS NULL OR
+                """)
+
+            # If only one required column
+            elif column.required == True and sum(req_col) == 1:
+                req_stmt = req_stmt+dedent(f"""{self.name}.{column} IS NULL
+                """)
+            
+        req_stmt = req_stmt+dedent(""")
+                            """)
+
         # Move rows from staging to final schema
         logging.info("Table '%s'.'%s': Loading.", self.schema, self.name)
+        
         stmt = dedent("""
         WITH moving AS (
           SELECT
@@ -394,14 +450,29 @@ class TableMeta(TableBase):
           SET meta_log = 'Duplicate'
           FROM moving
           WHERE {name}.meta_row_id = moving.meta_row_id
-        )
-        SELECT * FROM delete
-        """).format(
+        )""").format(
             name=self.name, schema=self.schema, row_id=self._row_id,
             columns_aliased=f"\n    , {self.name}.".join(columns),
             columns="\n    , ".join(columns),
             join_fks="\n  ".join(chain(*join_fks))
         )
+
+        # TODO: Fix data in stage for null data being sent 
+
+        # Add required statement only if there are required columns 
+        if sum(req_col) > 0:
+            stmt = stmt+req_stmt
+
+        stmt = stmt+("SELECT * FROM delete")
+        conn.execute(text(stmt))
+
+        # The remaining rows that were not moved from staging
+        # violated a foreign key constraint
+        stmt = dedent(f"""
+        UPDATE stg_{self.schema}.{self.name}
+        SET meta_log = 'Constraint violation (foreign key)'
+        WHERE meta_log IS NULL
+        """)
         conn.execute(text(stmt))
 
         # The remaining rows that were not moved from staging
@@ -420,37 +491,18 @@ class TableMeta(TableBase):
         for fk in self.foreign_keys:
             fk.create(conn)
 
-        # TODO: Add enforce data comment and required as functions of ColumnMeta
-        # TODO: Fix enforce data type error
-
         # Enforce data types
         for column in self.columns:
-            stmt = dedent(f"""
-            ALTER TABLE {self.schema}.{self.name}
-            ALTER COLUMN {column} TYPE {column.dtype[dialect]}
-            USING {column}::{column.dtype[dialect]}
-            """)
-            conn.execute(text(stmt))
+            column.enforce_type(conn, name=self.name, schema=self.schema, dialect=dialect)
 
-        # Comment on columns
-        for column in self.columns:
+            # Add comment to columns
             if column.description is not None:
-                stmt = dedent(f"""
-                COMMENT ON COLUMN {self.schema}.{self.name}.{column} IS '{column.description}'
-                """)
-                conn.execute(text(stmt))
-
-        # TODO: Fix for null data being sent
-        
-        # Set required param for columns
-        for column in self.columns:
+                column.comment(conn, schema = self.schema, name = self.name)
+            
+            # Enforce required
             if column.required:
-                stmt = dedent(f"""
-                ALTER TABLE {self.schema}.{self.name}
-                ALTER COLUMN {column} SET NOT NULL
-                """)
-                conn.execute(text(stmt))
-        
+                column.enforce_required(conn, schema = self.schema, name = self.name)
+
         # Warn of any remaining staged records
         count = conn.execute(text(f"""
         SELECT COUNT(*) FROM stg_{self.schema}.{self.name}
