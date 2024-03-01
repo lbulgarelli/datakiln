@@ -113,7 +113,7 @@ def generate_column_meta(field_name, field_meta):
     return column_meta
 
 
-def generate_table_meta(form_name, form_meta, is_data_empty, 
+def generate_table_meta(form_name, form_meta, is_data_empty,
                         primary_key = "meta_row_id", schema_name = "", encoding = "utf-8"):
     """Generate table metadata from redcap.
 
@@ -214,7 +214,7 @@ def generate_table_data(project, form_name, form_meta, na_values = []):
         diff_columns = list(set(data_columns) - set(meta_columns))
 
         # Exist in data but not in meta
-        if diff_columns != []:
+        if diff_columns:
 
             # Find checkbox columns in data to validate differences
             r = re.compile(".*___")
@@ -222,11 +222,11 @@ def generate_table_data(project, form_name, form_meta, na_values = []):
             diff_columns = list(set(diff_columns_meta) - set(diff_columns))
 
             # If columns still differ
-            if diff_columns != []:
+            if diff_columns:
                 logging.warning("DATA AND METADATA FIELDS DIFFER: %s", diff_columns)
 
         # Exist in meta but not in data
-        elif diff_columns == []:
+        elif not diff_columns:
             diff_columns = list(set(meta_columns) - set(data_columns))
             logging.warning("METADATA AND DATA FIELDS DIFFER: %s", diff_columns)
             form_meta = form_meta.drop(diff_columns, axis='rows')
@@ -311,7 +311,7 @@ def main(args=None):
         # Generate table metadata from form
         if args.json:
             logging.info("GENERATING TABLE METADATA: %s", form_name)
-            table_meta = generate_table_meta(form_name, form_meta, is_data_empty, 
+            table_meta = generate_table_meta(form_name, form_meta, is_data_empty,
                                             schema_name = args.schema)
 
             # Create tables directory if not exists
