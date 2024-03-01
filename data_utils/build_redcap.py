@@ -19,7 +19,7 @@ logging.basicConfig(
 # subject_id and redcap_event_name are not defined in metadata from redcap
 SUBJECT_COL = "subject_id"
 SUBJECT = dict(
-    name=SUBJECT_COL, 
+    name=SUBJECT_COL,
     description="Subject identifier.",
     dtype= dict(postgresql="TEXT"),
     required=True
@@ -27,9 +27,9 @@ SUBJECT = dict(
 
 REDCAP_COL = "redcap_event_name"
 REDCAP = dict(
-    name=REDCAP_COL, 
+    name=REDCAP_COL,
     description="Redcap event name.",
-    dtype= dict(postgresql="TEXT"), 
+    dtype= dict(postgresql="TEXT"),
     required=True
 )
 
@@ -48,12 +48,12 @@ def get_metadata(project):
     logging.info("REDCAP: RETRIEVING METADATA")
     metadata = project.export_metadata(format_type="df")
     metadata = metadata.loc[metadata.field_type != "descriptive"]
-    
+
     # Retrieve field names
     field_names = project.export_field_names(format_type="df")
     field_names = field_names.groupby(level=0)['export_field_name'].apply(list)
     metadata["field_names"] = field_names
-    
+
     # Some field names are not mapped in metadata (signatures)
     # print(metadata[metadata.field_names.isnull()].index)
 
@@ -113,7 +113,8 @@ def generate_column_meta(field_name, field_meta):
     return column_meta
 
 
-def generate_table_meta(form_name, form_meta, is_data_empty, primary_key = "meta_row_id", schema_name = "", encoding = "utf-8"):
+def generate_table_meta(form_name, form_meta, is_data_empty, 
+                        primary_key = "meta_row_id", schema_name = "", encoding = "utf-8"):
     """Generate table metadata from redcap.
 
     :param form_name: Name of the redcap form.
@@ -144,7 +145,7 @@ def generate_table_meta(form_name, form_meta, is_data_empty, primary_key = "meta
         "columns": [],
         "constraints": {"primary_key": [primary_key]}
     }
-    
+
     # TODO: add foreign key constraints
 
     # Generate metadata for each column
@@ -153,7 +154,7 @@ def generate_table_meta(form_name, form_meta, is_data_empty, primary_key = "meta
         # Ensure RedCap's columns are not present in meta (those are added in generate_table_meta)
         if field_name != SUBJECT_COL and field_name != REDCAP_COL:
             table_meta["columns"].append(generate_column_meta(field_name,field_meta))
-    
+
     # Add subject and redcap identifiers
     table_meta["columns"].append(SUBJECT)
     table_meta["columns"].append(REDCAP)
@@ -191,17 +192,16 @@ def generate_table_data(project, form_name, form_meta, na_values = []):
         format_type='df', forms=[form_name], decimal_character=".",
         df_kwargs={"index_col": None, "na_values": na_values})
 
-    # Investigate index_col to remove index
-    
     # Get metadata columns names
     meta_columns = form_meta.index.tolist()
 
     ## Get data column names and remove columns present across all data for comparison
-    data_columns = data.drop(['subject_id','redcap_event_name',f"{form_name}_complete"], # Remove columns that don't exist in metadata
-                    axis='columns', 
+    # Remove columns that don't exist in metadata
+    data_columns = data.drop(['subject_id','redcap_event_name',f"{form_name}_complete"],
+                    axis='columns',
                     errors='ignore'
                     ).columns.values.tolist() # Ignore errors for _complete columns
-    
+
     # print(data_columns)
     # Data is empty if it doesn't contain any columns besides the three above
     if data_columns == []:
@@ -212,19 +212,19 @@ def generate_table_data(project, form_name, form_meta, na_values = []):
     # Compare meta and data columns before one hot encoding checkbox fields
     if meta_columns != data_columns:
         diff_columns = list(set(data_columns) - set(meta_columns))
-        
+
         # Exist in data but not in meta
         if diff_columns != []:
-            
+
             # Find checkbox columns in data to validate differences
             r = re.compile(".*___")
             diff_columns_meta = list(filter(r.match, diff_columns))
             diff_columns = list(set(diff_columns_meta) - set(diff_columns))
 
-            # If columns still differ 
+            # If columns still differ
             if diff_columns != []:
                 logging.warning("DATA AND METADATA FIELDS DIFFER: %s", diff_columns)
-        
+
         # Exist in meta but not in data
         elif diff_columns == []:
             diff_columns = list(set(meta_columns) - set(data_columns))
@@ -311,7 +311,8 @@ def main(args=None):
         # Generate table metadata from form
         if args.json:
             logging.info("GENERATING TABLE METADATA: %s", form_name)
-            table_meta = generate_table_meta(form_name, form_meta, is_data_empty,  schema_name = args.schema)
+            table_meta = generate_table_meta(form_name, form_meta, is_data_empty, 
+                                            schema_name = args.schema)
 
             # Create tables directory if not exists
             tables_dir = directory / "metadata"

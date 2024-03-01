@@ -62,6 +62,22 @@ class ColumnMeta():
             yield item
 
     def enforce_type(self,conn,schema,name,dialect):
+        """Enforce column data type.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :param schema: Schema of foreign table.
+        :type schema: str
+
+        :param name: Table name.
+        :type name: str
+
+        :param dialect: Dialect of the Database.
+        :type dialect: str
+
+        :return: None
+        """
         stmt = dedent(f"""
         ALTER TABLE {schema}.{name}
         ALTER COLUMN {self.name} TYPE {self.dtype[dialect]}
@@ -70,6 +86,19 @@ class ColumnMeta():
         conn.execute(text(stmt))
 
     def enforce_required(self, conn, schema, name):
+        """Enforce required column values.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :param schema: Schema of foreign table.
+        :type schema: str
+
+        :param name: Table name.
+        :type name: str
+
+        :return: None
+        """
         stmt = dedent(f"""
         ALTER TABLE {schema}.{name}
         ALTER COLUMN {self.name} SET NOT NULL
@@ -77,11 +106,23 @@ class ColumnMeta():
         conn.execute(text(stmt))
 
     def comment(self,conn,schema,name):
+        """Add column description as a column comment.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :param schema: Schema of foreign table.
+        :type schema: str
+
+        :param name: Table name.
+        :type name: str
+
+        :return: None
+        """
         stmt = dedent(f"""
         COMMENT ON COLUMN {schema}.{name}.{self.name} IS '{self.description}'
         """)
         conn.execute(text(stmt))
-    
 
 
 @dataclass
@@ -388,7 +429,7 @@ class TableMeta(TableBase):
         # Generate list of required columns
         req_col = []
         for column in self.columns:
-            if column.required == True:
+            if column.required:
                 req_col.append(True)
             else:
                 req_col.append(False)
@@ -404,23 +445,23 @@ class TableMeta(TableBase):
         # Add required columns to required statement based on req_col
         for idx,column in enumerate(self.columns):
 
-            # If column is required and more than one required columns 
-            if column.required == True and sum(req_col) > 1:
+            # If column is required and more than one required columns
+            if column.required and sum(req_col) > 1:
                 req_col[idx] = False
                 req_stmt = req_stmt+dedent(f"""{self.name}.{column} IS NULL OR
                 """)
 
             # If only one required column
-            elif column.required == True and sum(req_col) == 1:
+            elif column.required and sum(req_col) == 1:
                 req_stmt = req_stmt+dedent(f"""{self.name}.{column} IS NULL
                 """)
-            
+
         req_stmt = req_stmt+dedent(""")
                             """)
 
         # Move rows from staging to final schema
         logging.info("Table '%s'.'%s': Loading.", self.schema, self.name)
-        
+
         stmt = dedent("""
         WITH moving AS (
           SELECT
@@ -457,9 +498,9 @@ class TableMeta(TableBase):
             join_fks="\n  ".join(chain(*join_fks))
         )
 
-        # TODO: Fix data in stage for null data being sent 
+        # TODO: Fix data in stage for null data being sent
 
-        # Add required statement only if there are required columns 
+        # Add required statement only if there are required columns
         if sum(req_col) > 0:
             stmt = stmt+req_stmt
 
@@ -498,7 +539,7 @@ class TableMeta(TableBase):
             # Add comment to columns
             if column.description is not None:
                 column.comment(conn, schema = self.schema, name = self.name)
-            
+
             # Enforce required
             if column.required:
                 column.enforce_required(conn, schema = self.schema, name = self.name)
