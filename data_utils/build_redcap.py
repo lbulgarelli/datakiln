@@ -170,7 +170,7 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
     return table_meta
 
 
-def generate_table_data(project, form_name, form_meta, na_values=None): 
+def generate_table_data(project, form_name, form_meta, na_values=None):
     # pylint: disable=too-many-locals
     """Retrieve table data from redcap.
 
