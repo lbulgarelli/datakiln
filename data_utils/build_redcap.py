@@ -8,7 +8,7 @@ import logging
 import re
 from pathlib import Path
 
-from redcap import Project
+from redcap import Project #pylint disable:import-error
 
 from data_utils.build_json import get_parser
 
@@ -170,8 +170,7 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
     return table_meta
 
 
-def generate_table_data(project, form_name, form_meta, na_values=None): 
-    # pylint disable:too-many-locals
+def generate_table_data(project, form_name, form_meta, na_values=None): # pylint disable:too-many-locals
     """Retrieve table data from redcap.
 
     :param project: PyCap project.
@@ -202,9 +201,8 @@ def generate_table_data(project, form_name, form_meta, na_values=None):
                     errors='ignore'
                     ).columns.values.tolist() # Ignore errors for _complete columns
 
-    # print(data_columns)
     # Data is empty if it doesn't contain any columns besides the three above
-    if data_columns:
+    if data_columns: # pylint disable:simplifiable-if-statement
         is_data_empty = True
     else:
         is_data_empty = False

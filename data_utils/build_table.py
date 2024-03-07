@@ -26,8 +26,7 @@ logging.basicConfig(
 class ColumnMeta():
     """Metadata for column."""
 
-    def __init__(self, name, dtype, description, required=False, rename=None):
-        # pylint disable:too-many-arguments
+    def __init__(self, name, dtype, description, required=False, rename=None): # pylint disable:too-many-arguments
         """
         :param name: Name of the column.
         :type name: str
