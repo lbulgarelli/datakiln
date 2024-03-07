@@ -26,14 +26,14 @@ logging.basicConfig(
 class ColumnMeta():
     """Metadata for column."""
 
-    def __init__(self, name, dtype, description, required, rename=None):
+    def __init__(self, name, dtype, description, required=False, rename=None):
         """
         :param name: Name of the column.
         :type name: str
 
         :param dtype: Type of the column for each dialect.
         :type dtype: dict
-        
+
         :param description: Description of the column.
         :type description: str
 
@@ -61,7 +61,7 @@ class ColumnMeta():
                 continue
             yield item
 
-    def enforce_type(self,conn,schema,name,dialect):
+    def enforce_type(self, conn, schema, name, dialect):
         """Enforce column data type.
 
         :param conn: SQLAlchemy connection or session.
@@ -105,7 +105,7 @@ class ColumnMeta():
         """)
         conn.execute(text(stmt))
 
-    def comment(self,conn,schema,name):
+    def comment(self, conn, schema, name):
         """Add column description as a column comment.
 
         :param conn: SQLAlchemy connection or session.
@@ -426,48 +426,27 @@ class TableMeta(TableBase):
         # Generate list of columns
         columns = list(map(str, self.columns))
 
-        # Generate list of required columns
-        req_col = []
-        for column in self.columns:
-            if column.required:
-                req_col.append(True)
-            else:
-                req_col.append(False)
-
-        # Header of required statement
-        req_stmt = dedent(f"""
-                , required AS (
-                  UPDATE stg_{self.schema}.{self.name}
-                  SET meta_log = 'Required'
-                  FROM moving
-                  WHERE """)
-
         # Add required columns to required statement based on req_col
-        for idx,column in enumerate(self.columns):
-
-            # If column is required and more than one required columns
-            if column.required and sum(req_col) > 1:
-                req_col[idx] = False
-                req_stmt = req_stmt+dedent(f"""{self.name}.{column} IS NULL OR
-                """)
-
-            # If only one required column
-            elif column.required and sum(req_col) == 1:
-                req_stmt = req_stmt+dedent(f"""{self.name}.{column} IS NULL
-                """)
-
-        req_stmt = req_stmt+dedent(""")
-                            """)
+        where_reqs = []
+        for column in self.columns:
+            if not column.required:
+                continue
+            where_reqs.append(f"{self.name}.{column} IS NOT NULL")
 
         # Move rows from staging to final schema
         logging.info("Table '%s'.'%s': Loading.", self.schema, self.name)
 
         stmt = dedent("""
-        WITH moving AS (
+        WITH not_null AS (
           SELECT
               {name}.{columns_aliased}
             , {name}.{row_id}
           FROM stg_{schema}.{name}
+          WHERE {where_reqs}
+        )
+        , moving AS (
+          SELECT *
+          FROM not_null
           {join_fks}
         )
         , moved AS (
@@ -486,25 +465,26 @@ class TableMeta(TableBase):
           WHERE {name}.meta_row_id = moved.meta_row_id
           RETURNING {name}.{row_id}
         )
+        , required AS (
+          UPDATE stg_{schema}.{name}
+          SET meta_log = 'Required'
+          FROM not_null
+          WHERE {name}.meta_row_id NOT IN (SELECT meta_row_id FROM not_null)
+        )
         , duplicate AS (
           UPDATE stg_{schema}.{name}
           SET meta_log = 'Duplicate'
           FROM moving
           WHERE {name}.meta_row_id = moving.meta_row_id
-        )""").format(
+        )
+        SELECT * FROM delete
+        """).format(
             name=self.name, schema=self.schema, row_id=self._row_id,
             columns_aliased=f"\n    , {self.name}.".join(columns),
             columns="\n    , ".join(columns),
+            where_reqs="\n     OR ".join(where_reqs),
             join_fks="\n  ".join(chain(*join_fks))
         )
-
-        # TODO: Fix data in stage for null data being sent
-
-        # Add required statement only if there are required columns
-        if sum(req_col) > 0:
-            stmt = stmt+req_stmt
-
-        stmt = stmt+("SELECT * FROM delete")
         conn.execute(text(stmt))
 
         # The remaining rows that were not moved from staging
@@ -534,15 +514,18 @@ class TableMeta(TableBase):
 
         # Enforce data types
         for column in self.columns:
-            column.enforce_type(conn, name=self.name, schema=self.schema, dialect=dialect)
+            column.enforce_type(
+                conn, name=self.name, schema=self.schema, dialect=dialect)
 
             # Add comment to columns
             if column.description is not None:
-                column.comment(conn, schema = self.schema, name = self.name)
+                column.comment(
+                    conn, schema=self.schema, name=self.name)
 
             # Enforce required
             if column.required:
-                column.enforce_required(conn, schema = self.schema, name = self.name)
+                column.enforce_required(
+                    conn, schema=self.schema, name=self.name)
 
         # Warn of any remaining staged records
         count = conn.execute(text(f"""
