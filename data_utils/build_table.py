@@ -26,7 +26,8 @@ logging.basicConfig(
 class ColumnMeta():
     """Metadata for column."""
 
-    def __init__(self, name, dtype, description, required=False, rename=None):
+    def __init__(self, name, dtype, description, 
+                required=False, rename=None): # pylint disable:too-many-arguments
         """
         :param name: Name of the column.
         :type name: str
@@ -426,7 +427,7 @@ class TableMeta(TableBase):
         # Generate list of columns
         columns = list(map(str, self.columns))
 
-        # Add required columns to required statement based on req_col
+        # Add required columns to where statement filtering not null values 
         where_reqs = []
         for column in self.columns:
             if not column.required:

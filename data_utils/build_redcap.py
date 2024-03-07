@@ -18,21 +18,20 @@ logging.basicConfig(
 
 # subject_id and redcap_event_name are not defined in metadata from redcap
 SUBJECT_COL = "subject_id"
-SUBJECT = dict(
-    name=SUBJECT_COL,
-    description="Subject identifier.",
-    dtype= dict(postgresql="TEXT"),
-    required=True
-)
+SUBJECT = {
+    "name" : SUBJECT_COL,
+    "description" : 'Subject identifier.',
+    "dtype" : {"postgresql":'TEXT'},
+    "required" : True
+}
 
 REDCAP_COL = "redcap_event_name"
-REDCAP = dict(
-    name=REDCAP_COL,
-    description="Redcap event name.",
-    dtype= dict(postgresql="TEXT"),
-    required=True
-)
-
+REDCAP = {
+    "name" : SUBJECT_COL,
+    "description" : 'Redcap event name.',
+    "dtype" : {"postgresql":'TEXT'},
+    "required" : True
+}
 
 def get_metadata(project):
     """Get metadata for project forms.
@@ -114,7 +113,9 @@ def generate_column_meta(field_name, field_meta):
 
 
 def generate_table_meta(form_name, form_meta, is_data_empty,
-                        primary_key = "meta_row_id", schema_name = "", encoding = "utf-8"):
+                        primary_key="meta_row_id", 
+                        schema_name="", encoding="utf-8"): 
+    # pylint: disable=too-many-arguments
     """Generate table metadata from redcap.
 
     :param form_name: Name of the redcap form.
@@ -146,8 +147,6 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
         "constraints": {"primary_key": [primary_key]}
     }
 
-    # TODO: add foreign key constraints
-
     # Generate metadata for each column
     for field_name, field_meta in form_meta.iterrows():
 
@@ -171,7 +170,7 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
     return table_meta
 
 
-def generate_table_data(project, form_name, form_meta, na_values = []):
+def generate_table_data(project, form_name, form_meta, na_values=None):
     """Retrieve table data from redcap.
 
     :param project: PyCap project.
@@ -190,7 +189,7 @@ def generate_table_data(project, form_name, form_meta, na_values = []):
     logging.info("GENERATING TABLE DATA: %s", form_name)
     data = project.export_records(
         format_type='df', forms=[form_name], decimal_character=".",
-        df_kwargs={"index_col": None, "na_values": na_values})
+        df_kwargs={"index_col": None, "na_values": na_values or []})
 
     # Get metadata columns names
     meta_columns = form_meta.index.tolist()
