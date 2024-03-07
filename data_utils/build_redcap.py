@@ -113,8 +113,8 @@ def generate_column_meta(field_name, field_meta):
 
 
 def generate_table_meta(form_name, form_meta, is_data_empty,
-                        primary_key="meta_row_id", 
-                        schema_name="", encoding="utf-8"): 
+                        primary_key="meta_row_id",
+                        schema_name="", encoding="utf-8"):
     # pylint: disable=too-many-arguments
     """Generate table metadata from redcap.
 
@@ -151,7 +151,7 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
     for field_name, field_meta in form_meta.iterrows():
 
         # Ensure RedCap's columns are not present in meta (those are added in generate_table_meta)
-        if field_name != SUBJECT_COL and field_name != REDCAP_COL:
+        if field_name not in (SUBJECT_COL, REDCAP_COL):
             table_meta["columns"].append(generate_column_meta(field_name,field_meta))
 
     # Add subject and redcap identifiers
@@ -170,7 +170,8 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
     return table_meta
 
 
-def generate_table_data(project, form_name, form_meta, na_values=None):
+def generate_table_data(project, form_name, form_meta, na_values=None): 
+    # pylint disable:too-many-locals
     """Retrieve table data from redcap.
 
     :param project: PyCap project.
@@ -203,7 +204,7 @@ def generate_table_data(project, form_name, form_meta, na_values=None):
 
     # print(data_columns)
     # Data is empty if it doesn't contain any columns besides the three above
-    if data_columns == []:
+    if data_columns:
         is_data_empty = True
     else:
         is_data_empty = False
