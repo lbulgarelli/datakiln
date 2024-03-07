@@ -483,7 +483,7 @@ class TableMeta(TableBase):
             name=self.name, schema=self.schema, row_id=self._row_id,
             columns_aliased=f"\n    , {self.name}.".join(columns),
             columns="\n    , ".join(columns),
-            where_reqs="\n     OR ".join(where_reqs),
+            where_reqs="\n     AND ".join(where_reqs),
             join_fks="\n  ".join(chain(*join_fks))
         )
         conn.execute(text(stmt))
