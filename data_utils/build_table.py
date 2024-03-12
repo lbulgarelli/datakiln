@@ -433,6 +433,8 @@ class TableMeta(TableBase):
             if not column.required:
                 continue
             where_reqs.append(f"{self.name}.{column} IS NOT NULL")
+        if len(where_reqs) > 0:
+            where_reqs[0] = f"WHERE {where_reqs[0]}"
 
         # Move rows from staging to final schema
         logging.info("Table '%s'.'%s': Loading.", self.schema, self.name)
@@ -443,7 +445,7 @@ class TableMeta(TableBase):
               {name}.{columns_aliased}
             , {name}.{row_id}
           FROM stg_{schema}.{name}
-          WHERE {where_reqs}
+          {where_reqs}
         )
         , moving AS (
           SELECT *
