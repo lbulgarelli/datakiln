@@ -81,8 +81,8 @@ class ColumnMeta():
         """
         stmt = dedent(f"""
         ALTER TABLE {schema}.{name}
-        ALTER COLUMN {self.name} TYPE {self.dtype[dialect]}
-        USING {self.name}::{self.dtype[dialect]}
+        ALTER COLUMN {self.rename} TYPE {self.dtype[dialect]}
+        USING {self.rename}::{self.dtype[dialect]}
         """)
         conn.execute(text(stmt))
 
@@ -102,7 +102,7 @@ class ColumnMeta():
         """
         stmt = dedent(f"""
         ALTER TABLE {schema}.{name}
-        ALTER COLUMN {self.name} SET NOT NULL
+        ALTER COLUMN {self.rename} SET NOT NULL
         """)
         conn.execute(text(stmt))
 
@@ -121,7 +121,7 @@ class ColumnMeta():
         :return: None
         """
         stmt = dedent(f"""
-        COMMENT ON COLUMN {schema}.{name}.{self.name} IS '{self.description}'
+        COMMENT ON COLUMN {schema}.{name}.{self.rename} IS '{self.description}'
         """)
         conn.execute(text(stmt))
 
