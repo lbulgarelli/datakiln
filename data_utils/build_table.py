@@ -1,11 +1,14 @@
 """
 Creates table and loads data.
 """
+import re
 import json
 import logging
 from pathlib import Path
 from getpass import getuser
 from textwrap import dedent
+from itertools import chain
+from dataclasses import dataclass
 
 from sqlalchemy.orm.session import Session
 from sqlalchemy import create_engine, text
@@ -51,6 +54,100 @@ class ColumnMeta():
             yield item
 
 
+@dataclass
+class ForeignKeyReference:
+    """Metadata for table referenced in foreign key.
+
+    :param schema: Schema of foreign table.
+    :type schema: str
+
+    :param table: Table referenced by foreign key.
+    :type table: str
+
+    :param columns: Columns referenced by foreign key.
+    :type columns: str
+    """
+    schema: str
+    table: str
+    columns: list
+
+
+class ForeignKeyMeta():
+    """Metadata for foreign key."""
+
+    def __init__(self, table, columns, reference):
+        """
+        :param table: Table referencing the foreign key.
+        :type table: str
+
+        :param columns: Columns referencing the foreign key.
+        :type columns: str
+
+        :param reference: Metadata for referenced table and columns.
+        :type reference: dict
+
+        :return: Foreign key metadata.
+        :rtype: ForeignKeyMeta
+        """
+        self.table = table
+        self.columns = columns
+        self.reference = ForeignKeyReference(**reference)
+
+    def create(self, conn):
+        """Create statement.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :return: None
+        """
+        stmt = dedent("""
+        ALTER TABLE {schema}.{table}
+        ADD FOREIGN KEY ({columns})
+        REFERENCES {schema}.{table} ({reference})
+        """).format(
+            columns=", ".join(self.columns),
+            schema=self.reference.schema,
+            table=self.reference.table,
+            reference=", ".join(self.reference.columns)
+        )
+        conn.execute(text(stmt))
+
+    def conditions(self):
+        """Generate comparisons to match each foreign key column.
+
+        :return: Comparisons for each foreign key column.
+        :rtype: list[str]
+        """
+        conditions = []
+
+        # Generate one comparison statement for each foreign key column
+        for column, o_column in zip(self.columns, self.reference.columns):
+            conditions.append(
+                f"  AND {self.table}.{column} = "
+                f"{self.reference.table}.{o_column}::TEXT"
+            )
+
+        # Remove AND clause from first comparison
+        conditions[0] = conditions[0][5:]
+
+        return conditions
+
+    def join(self):
+        """Generate JOIN statement for the foreign key.
+
+        :return: JOIN statement.
+        :rtype: list[str]
+        """
+        join = [f"JOIN {self.reference.schema}.{self.reference.table}"]
+        join.extend(self.conditions())
+
+        # Add ON clause to first comparison
+        join[1] = "  ON" + join[1]
+
+        return join
+
+
 class TableBase():
     """Base metadata for table."""
     # pylint: disable=too-few-public-methods
@@ -90,8 +187,12 @@ class TableBase():
 
         :return: None
         """
+        # Create the schema if it does not exists
+        conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {self.schema}"))
+
         # We replace the table if it already exists
-        conn.execute(text(f"DROP TABLE IF EXISTS {self.schema}.{self.name}"))
+        conn.execute(text(
+            f"DROP TABLE IF EXISTS {self.schema}.{self.name} CASCADE"))
 
         # Creates table. All columns initially have TEXT type.
         # Types are enforced after loading the data one column
@@ -149,7 +250,7 @@ class StageMeta(TableBase):
         # Get header from file
         reader = self._readers[data_path.suffix]
         buffer = reader(data_path, encoding=self.encoding)
-        header = next(buffer)
+        header = next(buffer).replace("\n", "").split(",")
 
         # To load the data, we need to order
         # the column list according to the file
@@ -173,8 +274,9 @@ class StageMeta(TableBase):
         buffer.close()
 
         # Add column to log staging errors
-        conn.execute(text(
-            f"ALTER TABLE {self.schema}.{self.name} ADD COLUMN meta_log TEXT"))
+        conn.execute(text(f"""
+        ALTER TABLE {self.schema}.{self.name} ADD COLUMN meta_log TEXT
+        """))
 
 
 class TableMeta(TableBase):
@@ -194,9 +296,15 @@ class TableMeta(TableBase):
         super().__init__(**kwargs)
 
         self.primary_key = constraints["primary_key"]
+        self.foreign_keys = []
+
+        # Instantiate metadata object for all foreign keys
+        for fk in constraints.get("foreign_keys", []):
+            fk_meta = ForeignKeyMeta(table=self.name, **fk)
+            self.foreign_keys.append(fk_meta)
 
     @property
-    def _stage_meta(self):
+    def stage_meta(self):
         """Metadata for stage table.
 
         :return: Table metadata.
@@ -221,7 +329,7 @@ class TableMeta(TableBase):
         """
         super().create(conn)
 
-        # Add constraints
+        # Add primary key
         stmt = dedent("""
         ALTER TABLE {schema}.{name} ADD PRIMARY KEY ({pk})
         """).format(
@@ -231,29 +339,31 @@ class TableMeta(TableBase):
         conn.execute(text(stmt))
 
         # Create stage as well
-        self._stage_meta.create(conn)
+        self.stage_meta.create(conn)
 
-    def load(self, conn, data_path):
+    def load(self, conn):
         """Load data from stage.
 
         :param conn: SQLAlchemy connection or session.
         :type conn: sqlalchemy.Engine
 
-        :param data_path: Path to file.
-        :type data_path: str
-
         :return: None
         """
-        # Stage data
-        self._stage_meta.load(conn, data_path)
+        # Generate JOIN statements for foreign keys
+        join_fks = map(ForeignKeyMeta.join, self.foreign_keys)
 
+        # Generate list of columns
+        columns = list(map(str, self.columns))
+
+        # Move rows from staging to final schema
         logging.info("Table '%s'.'%s': Loading.", self.schema, self.name)
         stmt = dedent("""
         WITH moving AS (
           SELECT
-              {columns}
-            , {row_id}
+              {name}.{columns_aliased}
+            , {name}.{row_id}
           FROM stg_{schema}.{name}
+          {join_fks}
         )
         , moved AS (
           INSERT INTO {schema}.{name} (
@@ -280,8 +390,19 @@ class TableMeta(TableBase):
         SELECT * FROM delete
         """).format(
             name=self.name, schema=self.schema, row_id=self._row_id,
-            columns='\n    , '.join(map(str, self.columns))
+            columns_aliased=f"\n    , {self.name}.".join(columns),
+            columns="\n    , ".join(columns),
+            join_fks="\n  ".join(chain(*join_fks))
         )
+        conn.execute(text(stmt))
+
+        # The remaining rows that were not moved from staging
+        # violated a foreign key constraint
+        stmt = dedent(f"""
+        UPDATE stg_{self.schema}.{self.name}
+        SET meta_log = 'Constraint violation (foreign key)'
+        WHERE meta_log IS NULL
+        """)
         conn.execute(text(stmt))
 
         # Get database dialect from connection
@@ -296,13 +417,19 @@ class TableMeta(TableBase):
             """)
             conn.execute(text(stmt))
 
+        # Enforce foreign keys
+        for fk in self.foreign_keys:
+            fk.create(conn)
+
         # Warn of any remaining staged records
-        count = conn.execute(text(
-            f"SELECT COUNT(*) FROM stg_{self.schema}.{self.name}"
-        )).first()[0]
+        count = conn.execute(text(f"""
+        SELECT COUNT(*) FROM stg_{self.schema}.{self.name}
+        """)).first()[0]
         if count > 0:
-            logging.warning("Table '%s'.'%s': %d rows remain staged.",
-                            self.schema, self.name, count)
+            logging.warning(
+                "Table '%s'.'%s': %d rows remain staged.",
+                self.schema, self.name, count
+            )
 
 
 def load_env(directory):
@@ -360,6 +487,33 @@ def connect(user, host, port, database, dialect):
     return Session(bind=con)
 
 
+def stage(meta_path, conn):
+    """Load metadata and stage data.
+
+    :param meta_path: Path to the metadata
+    :type meta_path: str
+
+    :param conn: SQLAlchemy connection or session.
+    :type conn: sqlalchemy.Engine
+
+    :return: None
+    """
+    # Load metadata
+    with open(meta_path, encoding="utf-8") as file:
+        meta_json = json.load(file)
+
+    # Create table
+    table_meta = TableMeta(**meta_json)
+    table_meta.create(conn)
+
+    # Stage data
+    meta_name = re.sub(r"^\d\d-", "", meta_path.stem)
+    data_path = (meta_path.parents[1] / "data").glob(f"{meta_name}.*")
+    table_meta.stage_meta.load(conn, next(data_path))
+
+    return table_meta
+
+
 def main(args=None):
     """Creates table and loads data."""
     # Get arguments
@@ -373,19 +527,9 @@ def main(args=None):
     db_params = load_env(meta_path.parents[1])
     conn = connect(**db_params)
 
-    # Load metadata
-    with open(meta_path, encoding="utf-8") as file:
-        meta_json = json.load(file)
-
-    # Create table
-    table_meta = TableMeta(**meta_json)
-    table_meta.create(conn)
-
-    # Load data
-    data_path = (meta_path.parents[1] / "data").glob(f"{meta_path.stem}.*")
-    table_meta.load(conn, next(data_path))
-
-    # Commit changes
+    # Load to final schema and commit changes
+    table_meta = stage(meta_path, conn)
+    table_meta.load(conn)
     conn.commit()
 
 
