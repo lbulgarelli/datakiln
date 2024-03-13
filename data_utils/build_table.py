@@ -488,6 +488,16 @@ def connect(user, host, port, database, dialect):
 
 
 def stage(meta_path, conn):
+    """Load metadata and stage data.
+
+    :param meta_path: Path to the metadata
+    :type meta_path: str
+
+    :param conn: SQLAlchemy connection or session.
+    :type conn: sqlalchemy.Engine
+
+    :return: None
+    """
     # Load metadata
     with open(meta_path, encoding="utf-8") as file:
         meta_json = json.load(file)
