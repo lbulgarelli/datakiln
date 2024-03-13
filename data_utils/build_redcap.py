@@ -8,7 +8,7 @@ import logging
 import re
 from pathlib import Path
 
-from redcap import Project #pylint: disable=import-error
+from redcap import Project  # pylint: disable=import-error
 
 from data_utils.build_json import get_parser
 
@@ -19,19 +19,20 @@ logging.basicConfig(
 # subject_id and redcap_event_name are not defined in metadata from redcap
 SUBJECT_COL = "subject_id"
 SUBJECT = {
-    "name" : SUBJECT_COL,
-    "description" : 'Subject identifier.',
-    "dtype" : {"postgresql":'TEXT'},
-    "required" : True
+    "name": SUBJECT_COL,
+    "description": 'Subject identifier.',
+    "dtype": {"postgresql": 'TEXT'},
+    "required": True
 }
 
 REDCAP_COL = "redcap_event_name"
 REDCAP = {
-    "name" : SUBJECT_COL,
-    "description" : 'Redcap event name.',
-    "dtype" : {"postgresql":'TEXT'},
-    "required" : True
+    "name": SUBJECT_COL,
+    "description": 'Redcap event name.',
+    "dtype": {"postgresql": 'TEXT'},
+    "required": True
 }
+
 
 def get_metadata(project):
     """Get metadata for project forms.
@@ -107,7 +108,7 @@ def generate_column_meta(field_name, field_meta):
 
     # Replace ' for '' standard in PostgreSQL
     if column_meta["description"] is not None:
-        column_meta["description"] = column_meta["description"].replace("'","''")
+        column_meta["description"] = column_meta["description"].replace("'", "''")
 
     return column_meta
 
@@ -129,7 +130,7 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
 
     :param primary_key: Primary key for the table.
     :type schema_name: str
-    
+
     :param schema_name: Name of the schema in PostgreSQL db.
     :type schema_name: str
 
@@ -140,7 +141,7 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
     :rtype: dict
     """
     table_meta = {
-        "name": form_name, 
+        "name": form_name,
         "schema": schema_name,
         "encoding": encoding,
         "columns": [],
@@ -150,7 +151,8 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
     # Generate metadata for each column
     for field_name, field_meta in form_meta.iterrows():
 
-        # Ensure RedCap's columns are not present in meta (those are added in generate_table_meta)
+        # Ensure RedCap's columns are not present in meta
+        # (those are added in generate_table_meta)
         if field_name not in (SUBJECT_COL, REDCAP_COL):
             table_meta["columns"].append(generate_column_meta(field_name,field_meta))
 
