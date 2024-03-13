@@ -310,15 +310,15 @@ def main(args=None):
 
         # Generate table data
         data, form_meta, is_data_empty = generate_table_data(
-            project, 
-            form_name, 
+            project,
+            form_name,
             form_meta)
 
         # Export to file
         file_path = data_dir / f"{form_name}.csv"
         data.to_csv(
-            file_path, 
-            encoding="utf-8", 
+            file_path,
+            encoding="utf-8",
             index=False)  # Remove index for data_utils
 
         # Generate table metadata from form
