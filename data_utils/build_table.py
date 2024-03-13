@@ -428,13 +428,11 @@ class TableMeta(TableBase):
         columns = list(map(str, self.columns))
 
         # Add required columns to where statement filtering not null values
-        where_reqs = []
+        where_reqs = ["WHERE meta_log IS NULL"]
         for column in self.columns:
             if not column.required:
                 continue
             where_reqs.append(f"{self.name}.{column} IS NOT NULL")
-        if len(where_reqs) > 0:
-            where_reqs[0] = f"WHERE {where_reqs[0]}"
 
         # Move rows from staging to final schema
         logging.info("Table '%s'.'%s': Loading.", self.schema, self.name)
@@ -442,14 +440,16 @@ class TableMeta(TableBase):
         stmt = dedent("""
         WITH not_null AS (
           SELECT
-              {name}.{columns_aliased}
-            , {name}.{row_id}
+              {columns}
+            , {row_id}
           FROM stg_{schema}.{name}
           {where_reqs}
         )
         , moving AS (
-          SELECT *
-          FROM not_null
+          SELECT
+              {name}.{columns_aliased}
+            , {name}.{row_id}
+          FROM not_null {name}
           {join_fks}
         )
         , moved AS (
@@ -471,8 +471,8 @@ class TableMeta(TableBase):
         , required AS (
           UPDATE stg_{schema}.{name}
           SET meta_log = 'Required'
-          FROM not_null
-          WHERE {name}.meta_row_id NOT IN (SELECT meta_row_id FROM not_null)
+          WHERE meta_log IS NULL
+          AND meta_row_id NOT IN (SELECT meta_row_id FROM not_null)
         )
         , duplicate AS (
           UPDATE stg_{schema}.{name}
