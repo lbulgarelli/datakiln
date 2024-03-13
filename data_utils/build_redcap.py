@@ -108,7 +108,8 @@ def generate_column_meta(field_name, field_meta):
 
     # Replace ' for '' standard in PostgreSQL
     if column_meta["description"] is not None:
-        column_meta["description"] = column_meta["description"].replace("'", "''")
+        column_meta["description"] = column_meta["description"].replace(
+            "'", "''")
 
     return column_meta
 
@@ -154,7 +155,8 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
         # Ensure RedCap's columns are not present in meta
         # (those are added in generate_table_meta)
         if field_name not in (SUBJECT_COL, REDCAP_COL):
-            table_meta["columns"].append(generate_column_meta(field_name,field_meta))
+            table_meta["columns"].append(
+                generate_column_meta(field_name, field_meta))
 
     # Add subject and redcap identifiers
     table_meta["columns"].append(SUBJECT)
@@ -164,8 +166,8 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
         # Add form completion column
         table_meta["columns"].append({
             "name": f"{form_name}_complete",
-            "dtype": {"postgresql":"TEXT"},
-            "required": False, # Should be True, changed to False for one project
+            "dtype": {"postgresql": "TEXT"},
+            "required": False,  # Should be True, using False for one project
             "description": None
         })
 
@@ -197,15 +199,16 @@ def generate_table_data(project, form_name, form_meta, na_values=None):
     # Get metadata columns names
     meta_columns = form_meta.index.tolist()
 
-    ## Get data column names and remove columns present across all data for comparison
+    # Get data column names for comparison
     # Remove columns that don't exist in metadata
-    data_columns = data.drop(['subject_id','redcap_event_name',f"{form_name}_complete"],
-                    axis='columns',
-                    errors='ignore'
-                    ).columns.values.tolist() # Ignore errors for _complete columns
+    data_columns = data.drop(
+        ['subject_id', 'redcap_event_name', f"{form_name}_complete"],
+        axis='columns',
+        errors='ignore'
+        ).columns.values.tolist()  # Ignore errors for _complete columns
 
     # Data is empty if it doesn't contain any columns besides the three above
-    if not data_columns: # pylint: disable=simplifiable-if-statement
+    if not data_columns:  # pylint: disable=simplifiable-if-statement
         is_data_empty = True
     else:
         is_data_empty = False
@@ -224,12 +227,14 @@ def generate_table_data(project, form_name, form_meta, na_values=None):
 
             # If columns still differ
             if diff_columns:
-                logging.warning("DATA AND METADATA FIELDS DIFFER: %s", diff_columns)
+                logging.warning(
+                    "DATA AND METADATA FIELDS DIFFER: %s", diff_columns)
 
         # Exist in meta but not in data
         elif not diff_columns:
             diff_columns = list(set(meta_columns) - set(data_columns))
-            logging.warning("METADATA AND DATA FIELDS DIFFER: %s", diff_columns)
+            logging.warning(
+                "METADATA AND DATA FIELDS DIFFER: %s", diff_columns)
             form_meta = form_meta.drop(diff_columns, axis='rows')
             logging.warning("METADA COLUMNS DROPPED SUCESSFULLY.")
 
@@ -268,8 +273,9 @@ def main(args=None):
                         required=True, help='REDCap API token.')
     parser.add_argument('--json', action='store_true', default=False,
                         help='Whether to export the JSON table metadata.')
-    parser.add_argument('--schema', metavar='schema', type=str,
-                        help='Specify the schema name for the json metadata, default is none.')
+    parser.add_argument(
+        '--schema', metavar='schema', type=str,
+        help='Specify the schema name for the json metadata, default is none.')
     parser.add_argument('--include', metavar='include', type=str, nargs='+',
                         help='Specify forms to include, default is all.')
     parser.add_argument('--exclude', metavar='exclude', type=str, nargs='+',
@@ -303,17 +309,23 @@ def main(args=None):
         data_dir.mkdir(exist_ok=True)
 
         # Generate table data
-        data, form_meta, is_data_empty = generate_table_data(project, form_name, form_meta)
+        data, form_meta, is_data_empty = generate_table_data(
+            project, 
+            form_name, 
+            form_meta)
 
         # Export to file
         file_path = data_dir / f"{form_name}.csv"
-        data.to_csv(file_path, encoding="utf-8", index=False) # Remove index for data_utils
+        data.to_csv(
+            file_path, 
+            encoding="utf-8", 
+            index=False)  # Remove index for data_utils
 
         # Generate table metadata from form
         if args.json:
             logging.info("GENERATING TABLE METADATA: %s", form_name)
-            table_meta = generate_table_meta(form_name, form_meta, is_data_empty,
-                                            schema_name = args.schema)
+            table_meta = generate_table_meta(
+                form_name, form_meta, is_data_empty, schema_name=args.schema)
 
             # Create tables directory if not exists
             tables_dir = directory / "metadata"
@@ -323,6 +335,7 @@ def main(args=None):
             target_fn = f"{tables_dir/form_name}.json"
             with open(target_fn, "w", encoding="utf-8") as target_file:
                 json.dump(table_meta, target_file, indent=4)
+
 
 if __name__ == "__main__":
     main()
