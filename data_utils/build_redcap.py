@@ -27,7 +27,7 @@ SUBJECT = {
 
 REDCAP_COL = "redcap_event_name"
 REDCAP = {
-    "name": SUBJECT_COL,
+    "name": REDCAP_COL,
     "description": 'Redcap event name.',
     "dtype": {"postgresql": 'TEXT'},
     "required": True
