@@ -401,15 +401,6 @@ class TableMeta(TableBase):
         """
         super().create(conn)
 
-        # Add primary key
-        stmt = dedent("""
-        ALTER TABLE {schema}.{name} ADD PRIMARY KEY ({pk})
-        """).format(
-            name=self.name, schema=self.schema,
-            pk=', '.join(self.primary_key)
-        )
-        conn.execute(text(stmt))
-
         # Create stage as well
         self.stage_meta.create(conn)
 
@@ -515,8 +506,9 @@ class TableMeta(TableBase):
         for fk in self.foreign_keys:
             fk.create(conn)
 
-        # Enforce data types
+        # Enforce constraints
         for column in self.columns:
+            # Enforce data types
             column.enforce_type(
                 conn, name=self.name, schema=self.schema, dialect=dialect)
 
@@ -529,6 +521,15 @@ class TableMeta(TableBase):
             if column.required:
                 column.enforce_required(
                     conn, schema=self.schema, name=self.name)
+
+        # Enforce primary key
+        stmt = dedent("""
+        ALTER TABLE {schema}.{name} ADD PRIMARY KEY ({pk})
+        """).format(
+            name=self.name, schema=self.schema,
+            pk=', '.join(self.primary_key)
+        )
+        conn.execute(text(stmt))
 
         # Warn of any remaining staged records
         count = conn.execute(text(f"""
