@@ -138,7 +138,7 @@ def main(args=None):
             continue
 
         # Read file
-        data = SUPPORTED_EXTENSIONS[extension](io=data_path.absolute())
+        data = SUPPORTED_EXTENSIONS[extension](data_path.absolute())
 
         # Excel files can have more than one sheet
         # so we handle the data as a dictionary
