@@ -126,7 +126,7 @@ def generate_column_meta(field_name, field_meta):
 def generate_table_meta(form_name, form_meta, is_data_empty,
                         subject_id, event_id,
                         primary_key="meta_row_id",
-                        schema_name="", 
+                        schema_name="",
                         encoding="utf-8"):
     # pylint: disable=too-many-arguments
     """Generate table metadata from redcap.
