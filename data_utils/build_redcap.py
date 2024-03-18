@@ -43,7 +43,7 @@ def set_id(project):
     logging.info("REDCAP: RETRIEVING ID FIELD")
 
     # Set global variables and update dict
-    global SUBJECT_COL, SUBJECT
+    global SUBJECT_COL
     SUBJECT_COL = project.def_field
     SUBJECT.update({"name": SUBJECT_COL})
 
