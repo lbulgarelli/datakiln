@@ -247,7 +247,7 @@ def generate_table_data(project, form_name, form_meta, na_values=None):
             logging.warning(
                 "METADATA AND DATA FIELDS DIFFER: %s", diff_columns)
             form_meta = form_meta.drop(diff_columns, axis='rows')
-            logging.warning("METADA COLUMNS DROPPED SUCESSFULLY.")
+            logging.warning("METADATA COLUMNS DROPPED SUCESSFULLY.")
 
     # Checkbox fields are multiple columns, so we group them into an array
     # comorbidity_1, comorbidity_2    to    comorbidity
