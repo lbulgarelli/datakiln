@@ -16,36 +16,36 @@ logging.basicConfig(
     level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',
     format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
 
+# REDCAP's ID and event name (project dependent)
+SUBJECT_COL = "subject_id"
+SUBJECT = {
+    "name": SUBJECT_COL,
+    "description": 'Subject identifier.',
+    "dtype": {"postgresql": 'TEXT'},
+    "required": True
+}
+REDCAP_COL = "redcap_event_name"
+REDCAP = {
+    "name": REDCAP_COL,
+    "description": 'Redcap event name.',
+    "dtype": {"postgresql": 'TEXT'},
+    "required": True
+}
 
 def set_id(project):
-    """Set ID fields for subject and REDCAP event.
+    """Set subject ID field.
 
     :param project: PyCap project.
     :type project: redcap.Project
     """
-    
+
     # Retrieve project's ID field
     logging.info("REDCAP: RETRIEVING ID FIELD")
 
-    # Set global variables
-    global SUBJECT_COL, REDCAP_COL, SUBJECT, REDCAP
-
+    # Set global variables and update dict
+    global SUBJECT_COL, SUBJECT
     SUBJECT_COL = project.def_field
-    SUBJECT = {
-        "name": SUBJECT_COL,
-        "description": 'Subject identifier.',
-        "dtype": {"postgresql": 'TEXT'},
-        "required": True
-    }
-    REDCAP_COL = "redcap_event_name"
-    REDCAP = {
-        "name": REDCAP_COL,
-        "description": 'Redcap event name.',
-        "dtype": {"postgresql": 'TEXT'},
-        "required": True
-    }
-
-    return
+    SUBJECT.update({"name": SUBJECT_COL})
 
 
 def get_metadata(project):
