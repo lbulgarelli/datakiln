@@ -16,22 +16,36 @@ logging.basicConfig(
     level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',
     format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
 
-# subject_id and redcap_event_name are not defined in metadata from redcap
-SUBJECT_COL = "subject_id"
-SUBJECT = {
-    "name": SUBJECT_COL,
-    "description": 'Subject identifier.',
-    "dtype": {"postgresql": 'TEXT'},
-    "required": True
-}
 
-REDCAP_COL = "redcap_event_name"
-REDCAP = {
-    "name": REDCAP_COL,
-    "description": 'Redcap event name.',
-    "dtype": {"postgresql": 'TEXT'},
-    "required": True
-}
+def set_id(project):
+    """Set ID fields for subject and REDCAP event.
+
+    :param project: PyCap project.
+    :type project: redcap.Project
+    """
+    
+    # Retrieve project's ID field
+    logging.info("REDCAP: RETRIEVING ID FIELD")
+
+    # Set global variables
+    global SUBJECT_COL, REDCAP_COL, SUBJECT, REDCAP
+
+    SUBJECT_COL = project.def_field
+    SUBJECT = {
+        "name": SUBJECT_COL,
+        "description": 'Subject identifier.',
+        "dtype": {"postgresql": 'TEXT'},
+        "required": True
+    }
+    REDCAP_COL = "redcap_event_name"
+    REDCAP = {
+        "name": REDCAP_COL,
+        "description": 'Redcap event name.',
+        "dtype": {"postgresql": 'TEXT'},
+        "required": True
+    }
+
+    return
 
 
 def get_metadata(project):
@@ -53,9 +67,6 @@ def get_metadata(project):
     field_names = project.export_field_names(format_type="df")
     field_names = field_names.groupby(level=0)['export_field_name'].apply(list)
     metadata["field_names"] = field_names
-
-    # Some field names are not mapped in metadata (signatures)
-    # print(metadata[metadata.field_names.isnull()].index)
 
     return metadata.where(metadata.notnull(), None).copy()
 
@@ -286,6 +297,9 @@ def main(args=None):
     # API parameters
     logging.info("REDCAP: CONNECTING TO API")
     project = Project(args.api_url, args.api_key)
+
+    # Set global variables ID field and redcap event name
+    set_id(project)
 
     # # Get all metatada for each redcap form
     metadata = get_metadata(project)
