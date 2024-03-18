@@ -46,6 +46,7 @@ def get_id(project):
 
     return subject_id, event_id
 
+
 def get_metadata(project):
     """Get metadata for project forms.
 
