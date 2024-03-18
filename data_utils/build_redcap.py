@@ -16,37 +16,35 @@ logging.basicConfig(
     level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',
     format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
 
-# REDCAP's ID and event name (project dependent)
-SUBJECT_COL = "subject_id"
-SUBJECT = {
-    "name": SUBJECT_COL,
-    "description": 'Subject identifier.',
-    "dtype": {"postgresql": 'TEXT'},
-    "required": True
-}
-REDCAP_COL = "redcap_event_name"
-REDCAP = {
-    "name": REDCAP_COL,
-    "description": 'Redcap event name.',
-    "dtype": {"postgresql": 'TEXT'},
-    "required": True
-}
 
-def set_id(project):
-    """Set subject ID field.
+def get_id(project):
+    """Get subject ID and REDCAP event fields.
 
     :param project: PyCap project.
     :type project: redcap.Project
+
+    :return: Subject ID and Event ID columns metadata.
+    :rtype: dict
     """
 
     # Retrieve project's ID field
     logging.info("REDCAP: RETRIEVING ID FIELD")
 
-    # Set global variables and update dict
-    global SUBJECT_COL
-    SUBJECT_COL = project.def_field
-    SUBJECT.update({"name": SUBJECT_COL})
+    # REDCAP's ID and event name (project dependent)
+    subject_id = {
+        "name": project.def_field,
+        "description": 'Subject identifier.',
+        "dtype": {"postgresql": 'TEXT'},
+        "required": True
+    }
+    event_id = {
+        "name": "redcap_event_name",
+        "description": 'Redcap event name.',
+        "dtype": {"postgresql": 'TEXT'},
+        "required": True
+    }
 
+    return subject_id, event_id
 
 def get_metadata(project):
     """Get metadata for project forms.
@@ -126,8 +124,10 @@ def generate_column_meta(field_name, field_meta):
 
 
 def generate_table_meta(form_name, form_meta, is_data_empty,
+                        subject_id, event_id,
                         primary_key="meta_row_id",
-                        schema_name="", encoding="utf-8"):
+                        schema_name="", 
+                        encoding="utf-8"):
     # pylint: disable=too-many-arguments
     """Generate table metadata from redcap.
 
@@ -165,13 +165,13 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
 
         # Ensure RedCap's columns are not present in meta
         # (those are added in generate_table_meta)
-        if field_name not in (SUBJECT_COL, REDCAP_COL):
+        if field_name not in (subject_id["name"], event_id["name"]):
             table_meta["columns"].append(
                 generate_column_meta(field_name, field_meta))
 
     # Add subject and redcap identifiers
-    table_meta["columns"].append(SUBJECT)
-    table_meta["columns"].append(REDCAP)
+    table_meta["columns"].append(subject_id)
+    table_meta["columns"].append(event_id)
 
     if not is_data_empty:
         # Add form completion column
@@ -298,8 +298,8 @@ def main(args=None):
     logging.info("REDCAP: CONNECTING TO API")
     project = Project(args.api_url, args.api_key)
 
-    # Set global variables ID field and redcap event name
-    set_id(project)
+    # Get subject ID field and redcap event ID
+    subject_id, event_id = get_id(project)
 
     # # Get all metatada for each redcap form
     metadata = get_metadata(project)
@@ -339,7 +339,12 @@ def main(args=None):
         if args.json:
             logging.info("GENERATING TABLE METADATA: %s", form_name)
             table_meta = generate_table_meta(
-                form_name, form_meta, is_data_empty, schema_name=args.schema)
+                form_name,
+                form_meta,
+                is_data_empty,
+                subject_id=subject_id,
+                event_id=event_id,
+                schema_name=args.schema)
 
             # Create tables directory if not exists
             tables_dir = directory / "metadata"
