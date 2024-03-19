@@ -105,9 +105,28 @@ def generate_column_meta(field_name, field_meta):
     :rtype: dict
     """
 
+    # Get description fields from metadata
+    description = []
+    if field_meta.field_label is not None:
+        description.append(
+            f"label: {field_meta.field_label}")
+    if field_meta.select_choices_or_calculations is not None:
+        description.append(
+            f"calcs: {field_meta.select_choices_or_calculations}")
+    if field_meta.field_note is not None:
+        description.append(
+            f"note: {field_meta.field_note}")
+
+    # Set delimiter -- between description fields and remove extra WS
+    if description:
+        description = " -- ".join(description)
+        description = " ".join(description.split())
+    else:
+        description = None
+
     column_meta = {
         "name": field_name,
-        "description": field_meta.select_choices_or_calculations,
+        "description": description,
         "dtype": {
             "postgresql": get_postgres_type(
                 field_meta.field_type,
