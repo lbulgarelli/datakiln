@@ -37,12 +37,15 @@ def get_id(project):
         "dtype": {"postgresql": 'TEXT'},
         "required": True
     }
-    event_id = {
-        "name": "redcap_event_name",
-        "description": 'Redcap event name.',
-        "dtype": {"postgresql": 'TEXT'},
-        "required": True
-    }
+    if project.is_longitudinal:
+        event_id = {
+            "name": "redcap_event_name",
+            "description": 'Redcap event name.',
+            "dtype": {"postgresql": 'TEXT'},
+            "required": True
+        }
+    else:
+        event_id = None
 
     return subject_id, event_id
 
@@ -144,7 +147,7 @@ def generate_column_meta(field_name, field_meta):
 
 
 def generate_table_meta(form_name, form_meta, is_data_empty,
-                        subject_id, event_id,
+                        is_longitudinal, subject_id, event_id,
                         primary_key="meta_row_id",
                         schema_name="",
                         encoding="utf-8"):
@@ -191,7 +194,8 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
 
     # Add subject and redcap identifiers
     table_meta["columns"].append(subject_id)
-    table_meta["columns"].append(event_id)
+    if is_longitudinal:
+        table_meta["columns"].append(event_id)
 
     if not is_data_empty:
         # Add form completion column
@@ -362,6 +366,7 @@ def main(args=None):
                 form_name,
                 form_meta,
                 is_data_empty,
+                is_longitudinal=project.is_longitudinal,
                 subject_id=subject_id,
                 event_id=event_id,
                 schema_name=args.schema)
