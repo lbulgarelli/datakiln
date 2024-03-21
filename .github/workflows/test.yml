@@ -8,6 +8,18 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.12"]
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
     steps:
     - uses: actions/checkout@v3
     - name: Set up Python ${{ matrix.python-version }}
@@ -19,5 +31,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install .
     - name: Test
+      env:
+          DB_USER: postgres
+          PGPASSWORD: postgres
       run: |
         pytest .
