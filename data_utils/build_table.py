@@ -68,7 +68,7 @@ class ColumnMeta():
         :param conn: SQLAlchemy connection or session.
         :type conn: sqlalchemy.Engine
 
-        :param schema: Schema of foreign table.
+        :param schema: Table schema.
         :type schema: str
 
         :param name: Table name.
@@ -92,7 +92,7 @@ class ColumnMeta():
         :param conn: SQLAlchemy connection or session.
         :type conn: sqlalchemy.Engine
 
-        :param schema: Schema of foreign table.
+        :param schema: Table schema.
         :type schema: str
 
         :param name: Table name.
@@ -112,7 +112,7 @@ class ColumnMeta():
         :param conn: SQLAlchemy connection or session.
         :type conn: sqlalchemy.Engine
 
-        :param schema: Schema of foreign table.
+        :param schema: Table schema.
         :type schema: str
 
         :param name: Table name.
