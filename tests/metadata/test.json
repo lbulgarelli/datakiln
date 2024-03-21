@@ -1,0 +1,28 @@
+{
+    "schema": "test",
+    "name": "test",
+    "columns": [
+        {
+            "name": "test_id",
+            "description": "",
+            "dtype": {
+                "postgresql": "INTEGER"
+            },
+            "required": true
+        },
+        {
+            "name": "test_seq",
+            "description": "",
+            "dtype": {
+                "postgresql": "INTEGER"
+            },
+            "required": true
+        }
+    ],
+    "constraints": {
+        "primary_key": [
+            "test_id",
+            "test_seq"
+        ]
+    }
+}

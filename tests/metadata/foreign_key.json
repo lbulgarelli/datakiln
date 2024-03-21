@@ -1,0 +1,45 @@
+{
+    "schema": "test",
+    "name": "foreign_key",
+    "columns": [
+        {
+            "name": "foreign_id",
+            "description": "",
+            "dtype": {
+                "postgresql": "INTEGER"
+            },
+            "required": true
+        },
+        {
+            "name": "test_id",
+            "description": "",
+            "dtype": {
+                "postgresql": "INTEGER"
+            },
+            "required": true
+        },
+        {
+            "name": "test_seq",
+            "description": "",
+            "dtype": {
+                "postgresql": "INTEGER"
+            },
+            "required": true
+        }
+    ],
+    "constraints": {
+        "primary_key": [
+            "foreign_id"
+        ],
+        "foreign_keys": [
+            {
+                "columns": ["test_id", "test_seq"],
+                "reference": {
+                    "schema": "test",
+                    "table": "test",
+                    "columns": ["test_id", "test_seq"]
+                }
+            }
+        ]
+    }
+}
