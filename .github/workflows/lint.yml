@@ -19,7 +19,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install pylint flake8
         pip install .
-    - name: Analysing the code with pylint
+    - name: Analysing the code
       run: |
         pylint data_utils
         flake8 data_utils
