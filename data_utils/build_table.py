@@ -26,13 +26,20 @@ logging.basicConfig(
 class ColumnMeta():
     """Metadata for column."""
 
-    def __init__(self, name, dtype, rename=None):
+    def __init__(self, name, dtype, description, required=False, rename=None):
+        # pylint: disable=too-many-arguments
         """
         :param name: Name of the column.
         :type name: str
 
         :param dtype: Type of the column for each dialect.
         :type dtype: dict
+
+        :param description: Description of the column.
+        :type description: str
+
+        :param required: If True, column can't be NULL.
+        :type required: boolean
 
         :param rename: Name to be used in the database.
         :type rename: str
@@ -43,6 +50,8 @@ class ColumnMeta():
         self.name = name
         self.dtype = dtype
         self.rename = rename or name
+        self.description = description
+        self.required = required
 
     def __str__(self):
         return self.rename
@@ -52,6 +61,69 @@ class ColumnMeta():
             if item[0].startswith("_"):
                 continue
             yield item
+
+    def enforce_type(self, conn, schema, name, dialect):
+        """Enforce column data type.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :param schema: Table schema.
+        :type schema: str
+
+        :param name: Table name.
+        :type name: str
+
+        :param dialect: Dialect of the Database.
+        :type dialect: str
+
+        :return: None
+        """
+        stmt = dedent(f"""
+        ALTER TABLE {schema}.{name}
+        ALTER COLUMN {self.rename} TYPE {self.dtype[dialect]}
+        USING {self.rename}::{self.dtype[dialect]}
+        """)
+        conn.execute(text(stmt))
+
+    def enforce_required(self, conn, schema, name):
+        """Enforce required column values.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :param schema: Table schema.
+        :type schema: str
+
+        :param name: Table name.
+        :type name: str
+
+        :return: None
+        """
+        stmt = dedent(f"""
+        ALTER TABLE {schema}.{name}
+        ALTER COLUMN {self.rename} SET NOT NULL
+        """)
+        conn.execute(text(stmt))
+
+    def comment(self, conn, schema, name):
+        """Add column description as a column comment.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :param schema: Table schema.
+        :type schema: str
+
+        :param name: Table name.
+        :type name: str
+
+        :return: None
+        """
+        stmt = dedent(f"""
+        COMMENT ON COLUMN {schema}.{name}.{self.rename} IS '{self.description}'
+        """)
+        conn.execute(text(stmt))
 
 
 @dataclass
@@ -329,15 +401,6 @@ class TableMeta(TableBase):
         """
         super().create(conn)
 
-        # Add primary key
-        stmt = dedent("""
-        ALTER TABLE {schema}.{name} ADD PRIMARY KEY ({pk})
-        """).format(
-            name=self.name, schema=self.schema,
-            pk=', '.join(self.primary_key)
-        )
-        conn.execute(text(stmt))
-
         # Create stage as well
         self.stage_meta.create(conn)
 
@@ -355,14 +418,29 @@ class TableMeta(TableBase):
         # Generate list of columns
         columns = list(map(str, self.columns))
 
+        # Add required columns to where statement filtering not null values
+        where_reqs = ["WHERE meta_log IS NULL"]
+        for column in self.columns:
+            if not column.required:
+                continue
+            where_reqs.append(f"{self.name}.{column} IS NOT NULL")
+
         # Move rows from staging to final schema
         logging.info("Table '%s'.'%s': Loading.", self.schema, self.name)
+
         stmt = dedent("""
-        WITH moving AS (
+        WITH not_null AS (
+          SELECT
+              {columns}
+            , {row_id}
+          FROM stg_{schema}.{name}
+          {where_reqs}
+        )
+        , moving AS (
           SELECT
               {name}.{columns_aliased}
             , {name}.{row_id}
-          FROM stg_{schema}.{name}
+          FROM not_null {name}
           {join_fks}
         )
         , moved AS (
@@ -381,6 +459,12 @@ class TableMeta(TableBase):
           WHERE {name}.meta_row_id = moved.meta_row_id
           RETURNING {name}.{row_id}
         )
+        , required AS (
+          UPDATE stg_{schema}.{name}
+          SET meta_log = 'Required'
+          WHERE meta_log IS NULL
+          AND meta_row_id NOT IN (SELECT meta_row_id FROM not_null)
+        )
         , duplicate AS (
           UPDATE stg_{schema}.{name}
           SET meta_log = 'Duplicate'
@@ -392,8 +476,18 @@ class TableMeta(TableBase):
             name=self.name, schema=self.schema, row_id=self._row_id,
             columns_aliased=f"\n    , {self.name}.".join(columns),
             columns="\n    , ".join(columns),
+            where_reqs="\n     AND ".join(where_reqs),
             join_fks="\n  ".join(chain(*join_fks))
         )
+        conn.execute(text(stmt))
+
+        # The remaining rows that were not moved from staging
+        # violated a foreign key constraint
+        stmt = dedent(f"""
+        UPDATE stg_{self.schema}.{self.name}
+        SET meta_log = 'Constraint violation (foreign key)'
+        WHERE meta_log IS NULL
+        """)
         conn.execute(text(stmt))
 
         # The remaining rows that were not moved from staging
@@ -408,18 +502,34 @@ class TableMeta(TableBase):
         # Get database dialect from connection
         dialect = conn.bind.dialect.name
 
-        # Enforce data types
-        for column in self.columns:
-            stmt = dedent(f"""
-            ALTER TABLE {self.schema}.{self.name}
-            ALTER COLUMN {column} TYPE {column.dtype[dialect]}
-            USING {column}::{column.dtype[dialect]}
-            """)
-            conn.execute(text(stmt))
-
         # Enforce foreign keys
         for fk in self.foreign_keys:
             fk.create(conn)
+
+        # Enforce constraints
+        for column in self.columns:
+            # Enforce data types
+            column.enforce_type(
+                conn, name=self.name, schema=self.schema, dialect=dialect)
+
+            # Add comment to columns
+            if column.description is not None:
+                column.comment(
+                    conn, schema=self.schema, name=self.name)
+
+            # Enforce required
+            if column.required:
+                column.enforce_required(
+                    conn, schema=self.schema, name=self.name)
+
+        # Enforce primary key
+        stmt = dedent("""
+        ALTER TABLE {schema}.{name} ADD PRIMARY KEY ({pk})
+        """).format(
+            name=self.name, schema=self.schema,
+            pk=', '.join(self.primary_key)
+        )
+        conn.execute(text(stmt))
 
         # Warn of any remaining staged records
         count = conn.execute(text(f"""
@@ -531,6 +641,9 @@ def main(args=None):
     table_meta = stage(meta_path, conn)
     table_meta.load(conn)
     conn.commit()
+
+    # Close connection
+    conn.close()
 
 
 if __name__ == "__main__":
