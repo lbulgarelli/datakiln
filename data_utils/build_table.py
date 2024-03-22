@@ -491,15 +491,6 @@ class TableMeta(TableBase):
         """)
         conn.execute(text(stmt))
 
-        # The remaining rows that were not moved from staging
-        # violated a foreign key constraint
-        stmt = dedent(f"""
-        UPDATE stg_{self.schema}.{self.name}
-        SET meta_log = 'Constraint violation (foreign key)'
-        WHERE meta_log IS NULL
-        """)
-        conn.execute(text(stmt))
-
         # Get database dialect from connection
         dialect = conn.bind.dialect.name
 
