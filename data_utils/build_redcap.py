@@ -112,17 +112,18 @@ def generate_column_meta(field_name, field_meta):
     description = []
     if field_meta.field_label is not None:
         description.append(
-            f"label: {field_meta.field_label}".strip())
+            f"label: {field_meta.field_label.strip()}")
     if field_meta.select_choices_or_calculations is not None:
         description.append(
-            f"calcs: {field_meta.select_choices_or_calculations}".strip())
+            "choices_or_calcs: "
+            f"{field_meta.select_choices_or_calculations.strip()}")
     if field_meta.field_note is not None:
         description.append(
-            f"note: {field_meta.field_note}".strip())
+            f"note: {field_meta.field_note.strip()}")
 
     # Set delimiter \n\n between description fields
     if description:
-        description = " \n\n ".join(description)
+        description = "\n\n ".join(description)
     else:
         description = None
 
