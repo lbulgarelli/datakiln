@@ -211,7 +211,7 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
 
 def generate_table_data(project, form_name, form_meta,
                         subject_id, event_id, na_values=None):
-    # pylint: disable=too-many-locals
+    # pylint: disable=too-many-locals, too-many-arguments
     """Retrieve table data from redcap.
 
     :param project: PyCap project.
@@ -239,14 +239,14 @@ def generate_table_data(project, form_name, form_meta,
     # Remove columns that don't exist in metadata
     if project.is_longitudinal:
         data_columns = data.drop(
-            ['subject_id', 'redcap_event_name',
+            [subject_id["name"], event_id["name"],
                 f"{form_name}_complete"],
             axis='columns',
             errors='ignore'  # Ignore errors for _complete columns
         ).columns.values.tolist()
     else:
         data_columns = data.drop(
-            ['subject_id', f"{form_name}_complete"],
+            [subject_id["name"], f"{form_name}_complete"],
             axis='columns',
             errors='ignore'  # Ignore errors for _complete columns
         ).columns.values.tolist()
