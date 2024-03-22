@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from sqlalchemy.orm.session import Session
 from sqlalchemy import create_engine, text
 from decouple import Config, RepositoryEnv, config
+from pandas._libs.parsers import STR_NA_VALUES
 
 from data_utils.build_json import get_parser
 from data_utils.io import open_excel
@@ -63,8 +64,35 @@ class ColumnMeta():
                 continue
             yield item
 
-    def enforce_type(self, conn, schema, name, dialect):
+    def resolve_na(self, conn, schema, name, na_values):
         """Enforce column data type.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :param schema: Table schema.
+        :type schema: str
+
+        :param name: Table name.
+        :type name: str
+
+        :return: None
+        """
+        stmt = dedent("""
+        UPDATE {schema}.{table}
+        SET {name} = NULL
+        WHERE {name} IN (
+            '{na_values}'
+        )""").format(
+            schema=schema,
+            table=name,
+            name=self.rename,
+            na_values="'\n  , '".join(na_values)
+        )
+        conn.execute(text(stmt))
+
+    def enforce_type(self, conn, schema, name, dialect):
+        """Resolve NULL values
 
         :param conn: SQLAlchemy connection or session.
         :type conn: sqlalchemy.Engine
@@ -226,7 +254,9 @@ class TableBase():
     # pylint: disable=too-few-public-methods
     _row_id = "meta_row_id"
 
-    def __init__(self, name, schema, columns, encoding="utf-8"):
+    def __init__(self, name, schema, columns, na_values=None,
+                 encoding="utf-8"):
+        # pylint: disable=too-many-arguments
         """
         :param name: Name of the table.
         :type name: str
@@ -247,6 +277,7 @@ class TableBase():
         self.schema = schema
         self.columns = []
         self.encoding = encoding
+        self.na_values = set(na_values or []) | STR_NA_VALUES
 
         # Instantiate metadata object for all columns
         for column in columns:
@@ -500,6 +531,11 @@ class TableMeta(TableBase):
 
         # Enforce constraints
         for column in self.columns:
+            # Resolve NULL values
+            column.resolve_na(
+                conn, schema=self.schema, name=self.name,
+                na_values=self.na_values)
+
             # Enforce data types
             column.enforce_type(
                 conn, name=self.name, schema=self.schema, dialect=dialect)
