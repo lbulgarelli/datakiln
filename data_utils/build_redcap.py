@@ -122,7 +122,7 @@ def generate_column_meta(field_name, field_meta):
 
     # Set delimiter -- between description fields and remove extra WS
     if description:
-        description = " -- ".join(description)
+        description = " \n ".join(description)
         description = " ".join(description.split())
     else:
         description = None
@@ -134,7 +134,7 @@ def generate_column_meta(field_name, field_meta):
             "postgresql": get_postgres_type(
                 field_meta.field_type,
                 field_meta.text_validation_type_or_show_slider_number)
-                },
+        },
         "required": field_meta.required_field == "y"
     }
 
@@ -193,9 +193,9 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
                 generate_column_meta(field_name, field_meta))
 
     # Add subject and redcap identifiers
-    table_meta["columns"].append(subject_id)
+    table_meta["columns"].insert(0, subject_id)
     if is_longitudinal:
-        table_meta["columns"].append(event_id)
+        table_meta["columns"].insert(1, event_id)
 
     if not is_data_empty:
         # Add form completion column
@@ -209,7 +209,8 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
     return table_meta
 
 
-def generate_table_data(project, form_name, form_meta, na_values=None):
+def generate_table_data(project, form_name, form_meta,
+                        subject_id, event_id, na_values=None):
     # pylint: disable=too-many-locals
     """Retrieve table data from redcap.
 
@@ -236,17 +237,22 @@ def generate_table_data(project, form_name, form_meta, na_values=None):
 
     # Get data column names for comparison
     # Remove columns that don't exist in metadata
-    data_columns = data.drop(
-        ['subject_id', 'redcap_event_name', f"{form_name}_complete"],
-        axis='columns',
-        errors='ignore'
-        ).columns.values.tolist()  # Ignore errors for _complete columns
+    if project.is_longitudinal:
+        data_columns = data.drop(
+            ['subject_id', 'redcap_event_name',
+                f"{form_name}_complete"],
+            axis='columns',
+            errors='ignore'  # Ignore errors for _complete columns
+        ).columns.values.tolist()
+    else:
+        data_columns = data.drop(
+            ['subject_id', f"{form_name}_complete"],
+            axis='columns',
+            errors='ignore'  # Ignore errors for _complete columns
+        ).columns.values.tolist()
 
     # Data is empty if it doesn't contain any columns besides the three above
-    if not data_columns:  # pylint: disable=simplifiable-if-statement
-        is_data_empty = True
-    else:
-        is_data_empty = False
+    is_data_empty = not data_columns
 
     # Compare meta and data columns before one hot encoding checkbox fields
     if meta_columns != data_columns:
@@ -348,9 +354,9 @@ def main(args=None):
 
         # Generate table data
         data, form_meta, is_data_empty = generate_table_data(
-            project,
-            form_name,
-            form_meta)
+            project, form_name, form_meta,
+            subject_id=subject_id,
+            event_id=event_id)
 
         # Export to file
         file_path = data_dir / f"{form_name}.csv"
