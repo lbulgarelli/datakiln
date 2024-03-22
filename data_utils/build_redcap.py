@@ -147,7 +147,7 @@ def generate_column_meta(field_name, field_meta):
 
 
 def generate_table_meta(form_name, form_meta, is_data_empty,
-                        is_longitudinal, subject_id, event_id,
+                        subject_id, event_id,
                         primary_key="meta_row_id",
                         schema_name="",
                         encoding="utf-8"):
@@ -194,7 +194,7 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
 
     # Add subject and redcap identifiers
     table_meta["columns"].insert(0, subject_id)
-    if is_longitudinal:
+    if event_id:
         table_meta["columns"].insert(1, event_id)
 
     if not is_data_empty:
@@ -237,7 +237,7 @@ def generate_table_data(project, form_name, form_meta,
 
     # Get data column names for comparison
     # Remove columns that don't exist in metadata
-    if project.is_longitudinal:
+    if event_id:
         data_columns = data.drop(
             [subject_id["name"], event_id["name"],
                 f"{form_name}_complete"],
@@ -372,7 +372,6 @@ def main(args=None):
                 form_name,
                 form_meta,
                 is_data_empty,
-                is_longitudinal=project.is_longitudinal,
                 subject_id=subject_id,
                 event_id=event_id,
                 schema_name=args.schema)
