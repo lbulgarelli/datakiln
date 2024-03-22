@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from sqlalchemy.orm.session import Session
 from sqlalchemy import create_engine, text
 from decouple import Config, RepositoryEnv, config
-from pandas._libs.parsers import STR_NA_VALUES
+from pandas._libs.parsers import STR_NA_VALUES  # pylint: disable=no-name-in-module # noqa: E501
 
 from data_utils.build_json import get_parser
 from data_utils.io import open_excel
