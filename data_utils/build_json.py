@@ -51,7 +51,7 @@ def get_parser():
     return parser
 
 
-def dtype_to_meta(column, dtype, description=None, required=False):
+def dtype_to_meta(column, dtype, required=False):
     """Generates metadata for column from tuple.
 
     :param column: Column name as it is in data file.
@@ -72,7 +72,6 @@ def dtype_to_meta(column, dtype, description=None, required=False):
     return {
         "name": column,
         "rename": slugify(column, separator="_"),
-        "description": description,
         "required": required,
         "dtype": {
             "postgresql": dtype_to_psql(dtype)
