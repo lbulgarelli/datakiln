@@ -76,6 +76,9 @@ class ColumnMeta():
         :param name: Table name.
         :type name: str
 
+        :param na_values: Values to consider as NULL.
+        :type columns: set[str]
+
         :return: None
         """
         stmt = dedent("""
@@ -266,6 +269,9 @@ class TableBase():
 
         :param columns: Metadata for table columns.
         :type columns: list[dict]
+
+        :param na_values: Values to consider as NULL.
+        :type columns: set[str]
 
         :param encoding: encoding of the data file.
         :type encoding: str

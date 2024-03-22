@@ -57,12 +57,6 @@ def dtype_to_meta(column, dtype):
     :param column: Column name as it is in data file.
     :type column: str
 
-    :param dtype: Type inferred by pandas.
-    :type dtype: type
-
-    :param description: Description of the column.
-    :type description: str
-
     :param required: If True, column can't be NULL.
     :type required: boolean
 
