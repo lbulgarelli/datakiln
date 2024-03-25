@@ -453,12 +453,15 @@ class TableMeta(TableBase):
         # Generate JOIN statements for foreign keys
         join_fks = map(ForeignKeyMeta.join, self.foreign_keys)
 
-        # Generate list of columns
-        columns = list(map(str, self.columns))
+        # Intialize variables
+        columns = []
+        where_reqs = ["WHERE meta_log IS NULL"]  # Filters can be set in transform stage by filling this column # noqa: E501
 
-        # Add required columns to where statement filtering not null values
-        where_reqs = ["WHERE meta_log IS NULL"]
         for column in self.columns:
+            # Append to list of columns to be retrieved
+            columns.append(str(column))
+
+            # Add required columns to where statement filtering not null values
             if not column.required:
                 continue
             where_reqs.append(f"{self.name}.{column} IS NOT NULL")
