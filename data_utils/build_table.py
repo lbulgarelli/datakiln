@@ -471,6 +471,15 @@ class TableMeta(TableBase):
         # Move rows from staging to final schema
         logging.info("Table '%s'.'%s': Loading.", self.schema, self.name)
 
+        # Enforce primary key
+        stmt = dedent("""
+        ALTER TABLE {schema}.{name} ADD PRIMARY KEY ({pk})
+        """).format(
+            name=self.name, schema=self.schema,
+            pk=', '.join(self.primary_key)
+        )
+        conn.execute(text(stmt))
+
         stmt = dedent("""
         WITH not_null AS (
           SELECT
@@ -560,15 +569,6 @@ class TableMeta(TableBase):
             if column.required:
                 column.enforce_required(
                     conn, schema=self.schema, name=self.name)
-
-        # Enforce primary key
-        stmt = dedent("""
-        ALTER TABLE {schema}.{name} ADD PRIMARY KEY ({pk})
-        """).format(
-            name=self.name, schema=self.schema,
-            pk=', '.join(self.primary_key)
-        )
-        conn.execute(text(stmt))
 
         # Warn of any remaining staged records
         count = conn.execute(text(f"""
