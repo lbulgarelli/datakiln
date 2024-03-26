@@ -28,7 +28,7 @@ class ColumnMeta():
     """Metadata for column."""
 
     def __init__(self, name, dtype, description=None, required=False,
-                 rename=None):
+                 rename=None, transform=False):
         # pylint: disable=too-many-arguments
         """
         :param name: Name of the column.
@@ -54,6 +54,7 @@ class ColumnMeta():
         self.rename = rename or name
         self.description = description
         self.required = required
+        self.transform = transform
 
     def __str__(self):
         return self.rename
@@ -364,7 +365,8 @@ class StageMeta(TableBase):
 
         # To load the data, we need to order
         # the column list according to the file
-        columns = sorted(self.columns, key=lambda c: header.index(c.name))
+        columns = filter(lambda c: not c.transform, self.columns)
+        columns = sorted(columns, key=lambda c: header.index(c.name))
 
         # Generate statement
         stmt = dedent("""
