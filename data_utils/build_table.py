@@ -46,6 +46,12 @@ class ColumnMeta():
         :param rename: Name to be used in the database.
         :type rename: str
 
+        :param rename: Specifies if the column is derived/created in the
+                       transform step.
+                       (This means the column is not present and will not be
+                       retrieved from the source).
+        :type rename: boolean
+
         :return: Column metadata.
         :rtype: ColumnMeta
         """
