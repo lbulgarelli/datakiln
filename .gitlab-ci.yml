@@ -12,3 +12,16 @@ include:
   - component: $CI_SERVER_FQDN/example/python-ci/test@0.1.0
   - component: $CI_SERVER_FQDN/example/python-ci/document@0.1.0
   - component: $CI_SERVER_FQDN/example/python-ci/push@0.1.0
+
+.unit_tests:
+  variables:
+    POSTGRES_DB: test
+    POSTGRES_USER: test
+    POSTGRES_PASSWORD: test
+    POSTGRES_HOST_AUTH_METHOD: trust
+  services:
+    - postgres
+  before_script:
+    - echo DB_USER=$POSTGRES_USER > .env
+    - echo DB_HOST=postgres >> .env
+    - echo DB_NAME=$POSTGRES_DB >> .env
