@@ -41,7 +41,7 @@ class ColumnMeta():
         :type description: str
 
         :param required: If True, column can't be NULL.
-        :type required: boolean
+        :type required: bool
 
         :param rename: Name to be used in the database.
         :type rename: str
@@ -50,7 +50,7 @@ class ColumnMeta():
                        transform step.
                        (This means the column is not present and will not be
                        retrieved from the source).
-        :type rename: boolean
+        :type rename: bool
 
         :return: Column metadata.
         :rtype: ColumnMeta

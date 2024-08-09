@@ -161,7 +161,7 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
     :type form_meta: pandas.DataFrame
 
     :param is_data_empty: Flag identifying if data contain relevant fields.
-    :type form_name: boolean
+    :type form_name: bool
 
     :param primary_key: Primary key for the table.
     :type schema_name: str

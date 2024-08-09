@@ -82,7 +82,7 @@ def generate_table_meta(meta_dir, table_name, data):
     :type table_name: str
 
     :param data: DataFrame containing sample data for the table.
-    :type data: pd.DataFrame
+    :type data: pandas.DataFrame
 
     :return: None
     """
