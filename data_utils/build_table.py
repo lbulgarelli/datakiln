@@ -673,7 +673,7 @@ def stage(meta_path, conn):
 
     # Find data file
     for file in data_dir.glob(f"{meta_name}.*"):
-        if file.suffix not in StageMeta._readers.keys():
+        if file.suffix not in StageMeta._readers:  # pylint: disable=protected-access
             continue
         data_path = file.absolute()
 
