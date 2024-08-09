@@ -27,6 +27,7 @@ def test_session():
 
 
 class TestBuild():
+    # pylint: disable=too-few-public-methods
     """
     Test loading functions
     """
