@@ -667,10 +667,18 @@ def stage(meta_path, conn):
     table_meta = TableMeta(**meta_json)
     table_meta.create(conn)
 
-    # Stage data
+    # Determine data file name
     meta_name = re.sub(r"^\d\d-", "", meta_path.stem)
-    data_path = (meta_path.parents[1] / "data").glob(f"{meta_name}.*")
-    table_meta.stage_meta.load(conn, next(data_path))
+    data_dir = meta_path.parents[1] / "data"
+
+    # Find data file
+    for file in data_dir.glob(f"{meta_name}.*"):
+        if file.suffix not in StageMeta._readers.keys():
+            continue
+        data_path = file.absolute()
+
+    # Stage data
+    table_meta.stage_meta.load(conn, data_path)
 
     return table_meta
 
