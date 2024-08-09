@@ -14,6 +14,7 @@ from sqlalchemy.orm.session import Session
 from sqlalchemy import create_engine, text
 from decouple import Config, RepositoryEnv, config
 from pandas._libs.parsers import STR_NA_VALUES  # pylint: disable=no-name-in-module # noqa: E501
+from sqlalchemy_utils import create_database, database_exists
 
 from data_utils.build_json import get_parser
 from data_utils.io import open_excel
@@ -638,6 +639,11 @@ def connect(user, host, port, database, dialect):
     """
     engine = create_engine(
         f"{dialect}://{user}:@{host}:{port}/{database}")
+
+    # Create database
+    if not database_exists(engine.url):
+        create_database(engine.url)
+
     con = engine.connect()
     return Session(bind=con)
 
