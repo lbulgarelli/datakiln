@@ -41,7 +41,7 @@ class ColumnMeta():
         :type description: str
 
         :param required: If True, column can't be NULL.
-        :type required: boolean
+        :type required: bool
 
         :param rename: Name to be used in the database.
         :type rename: str
@@ -50,7 +50,7 @@ class ColumnMeta():
                        transform step.
                        (This means the column is not present and will not be
                        retrieved from the source).
-        :type rename: boolean
+        :type rename: bool
 
         :return: Column metadata.
         :rtype: ColumnMeta
@@ -340,14 +340,14 @@ class StageMeta(TableBase):
         :param \**kwargs: TableBase attributes.
         :type \**kwargs: dict
 
-        :return: Table metadata.
-        :rtype: TableMeta
+        :return: Stage metadata.
+        :rtype: StageBase
         """
         super().__init__(**kwargs)
 
         self.schema = f"stg_{self.schema}"
 
-        # Do not inforce types in stage
+        # Do not enforce types in stage
         for column in self.columns:
             column.dtype = dict.fromkeys(column.dtype.keys(), "TEXT")
 
@@ -409,7 +409,7 @@ class TableMeta(TableBase):
         :type \**kwargs: dict
 
         :return: Table metadata.
-        :rtype: .TableMeta
+        :rtype: TableMeta
         """
         super().__init__(**kwargs)
 

@@ -72,7 +72,7 @@ def dtype_to_meta(column, dtype):
     }
 
 
-def generate_meta(meta_dir, table_name, data):
+def generate_table_meta(meta_dir, table_name, data):
     """Generates metadata for column from tuple.
 
     :param meta_dir: Medatada directory.
@@ -82,7 +82,7 @@ def generate_meta(meta_dir, table_name, data):
     :type table_name: str
 
     :param data: DataFrame containing sample data for the table.
-    :type data: pd.DataFrame
+    :type data: pandas.DataFrame
 
     :return: None
     """
@@ -151,7 +151,7 @@ def main(args=None):
 
         # Generate metadata
         for table_name, df in data.items():
-            generate_meta(meta_dir, table_name, df)
+            generate_table_meta(meta_dir, table_name, df)
 
 
 if __name__ == "__main__":
