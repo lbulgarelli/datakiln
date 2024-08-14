@@ -618,6 +618,14 @@ def load_env(directory):
 
 
 def create_role(conn, database):
+    """Connect to database using SQLAlchemy.
+
+    :param conn: SQLAlchemy connection or session.
+    :type conn: sqlalchemy.Engine
+
+    :param database: Name of the database.
+    :type database: str
+    """
     try:
         conn.execute(text(dedent("""
         CREATE ROLE {database}
