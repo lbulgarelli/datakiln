@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm.session import Session
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import ProgrammingError
 from decouple import Config, RepositoryEnv, config
 from pandas._libs.parsers import STR_NA_VALUES  # pylint: disable=no-name-in-module # noqa: E501
 from sqlalchemy_utils import create_database, database_exists
@@ -616,6 +617,18 @@ def load_env(directory):
     return db_params
 
 
+def create_role(conn, database):
+    try:
+        conn.execute(text(dedent("""
+        CREATE ROLE {database}
+        """).format(database=database)))
+    except ProgrammingError as error:
+        message = f'role "{database}" already exists'
+        if message in error._message():
+            return
+        raise error
+
+
 def connect(user, host, port, database, dialect):
     """Connect to database using SQLAlchemy.
 
@@ -644,8 +657,13 @@ def connect(user, host, port, database, dialect):
     if not database_exists(engine.url):
         create_database(engine.url)
 
-    con = engine.connect()
-    return Session(bind=con)
+    # Connect
+    conn = engine.connect()
+
+    # Create role for database read access
+    create_role(conn, database)
+
+    return Session(bind=conn)
 
 
 def stage(meta_path, conn):
