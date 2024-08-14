@@ -632,7 +632,7 @@ def create_role(conn, database):
         """).format(database=database)))
     except ProgrammingError as error:
         message = f'role "{database}" already exists'
-        if message in error._message():
+        if message in error._message():  # pylint: disable=protected-access
             return
         raise error
 
