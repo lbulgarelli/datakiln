@@ -17,7 +17,14 @@ logging.basicConfig(
 
 
 def execute_directory(directory, conn):
-    """Executes SQL scripts in a given directory."""
+    """Executes SQL scripts in a given directory.
+
+    :param directory: Path for metadata directory.
+    :type directory: str
+
+    :param conn: SQLAlchemy connection or session.
+    :type conn: sqlalchemy.Engine
+    """
     for file_name in sorted(directory.glob("*.sql")):
         logging.info("Script '%s/%s': RUNNING", directory.stem, file_name.stem)
 
