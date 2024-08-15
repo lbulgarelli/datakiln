@@ -73,9 +73,9 @@ def grant(conn, role, users=None):
 
     # Grant permissions to users by proxy of the database role
     if users:
-        conn.execute(text("GRANT {role} TO {users}".format(
+        conn.execute(text('GRANT {role} TO "{users}"'.format(
             role=role,
-            users=', '.join(users)))
+            users='", "'.join(users)))
         )
 
 
