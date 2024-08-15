@@ -666,12 +666,12 @@ def connect(user, host, port, database, dialect):
         create_database(engine.url)
 
     # Connect
-    conn = engine.connect()
+    conn = Session(bind=engine.connect())
 
     # Create role for database read access
     create_role(conn, database)
 
-    return Session(bind=conn)
+    return conn
 
 
 def stage(meta_path, conn):
