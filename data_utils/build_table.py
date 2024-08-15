@@ -670,6 +670,7 @@ def connect(user, host, port, database, dialect):
 
     # Create role for database read access
     create_role(conn, database)
+    conn.commit()
 
     return conn
 
