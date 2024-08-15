@@ -39,7 +39,7 @@ def execute_directory(directory, conn):
         conn.flush()
 
 
-def grant(conn, role):
+def grant(conn, role, users=None):
     """Grants read on all objects in database.
 
     :param conn: SQLAlchemy connection or session.
@@ -48,6 +48,8 @@ def grant(conn, role):
     :param role: Name of the role to grant permissions to.
     :type role: str
     """
+    # Iterates all schemas in database and grant
+    # read permissions to database role
     conn.execute(text(dedent(f"""
     DO $do$
     DECLARE
@@ -69,11 +71,20 @@ def grant(conn, role):
     END;
     $do$;""")))  # noqa: E501
 
+    # Grant permissions to users by proxy of the database role
+    if users:
+        conn.execute(text("GRANT {role} TO {users}".format(
+            role=role,
+            users=', '.join(users)))
+        )
+
 
 def main(args=None):
     """Creates table and loads data."""
     # Get arguments
     parser = get_parser()
+    parser.add_argument("--grant", metavar="grant", type=str, nargs='+',
+                        help="Grant read permissions to specified users")
     args = parser.parse_args(args)
 
     # Get absolute of specified path
@@ -101,7 +112,7 @@ def main(args=None):
     execute_directory(directory / "derive", conn)
 
     # Grant read permissions on entire database
-    grant(conn, db_params["database"])
+    grant(conn, db_params["database"], args.grant)
 
     # Commit changes
     conn.commit()
