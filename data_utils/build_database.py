@@ -3,6 +3,7 @@ Creates table and loads data.
 """
 import logging
 from pathlib import Path
+from textwrap import dedent
 
 from sqlalchemy import text
 
@@ -29,6 +30,37 @@ def execute_directory(directory, conn):
 
         # Flush to database
         conn.flush()
+
+
+def grant(conn, role):
+    """Grants read on all objects in database.
+
+    :param conn: SQLAlchemy connection or session.
+    :type conn: sqlalchemy.Engine
+
+    :param role: Name of the role to grant permissions to.
+    :type role: str
+    """
+    conn.execute(text(dedent(f"""
+    DO $do$
+    DECLARE
+      schema TEXT;
+    BEGIN
+      FOR schema IN (
+        SELECT nspname
+        FROM pg_namespace
+        WHERE nspname NOT IN (
+            'information_schema'
+          , 'pg_catalog'
+          , 'pg_toast'
+        )
+      ) LOOP
+        EXECUTE format($$ GRANT USAGE ON SCHEMA %I TO {role} $$, schema);
+        EXECUTE format($$ GRANT SELECT ON ALL SEQUENCES IN SCHEMA %I TO {role} $$, schema);
+        EXECUTE format($$ GRANT SELECT ON ALL TABLES IN SCHEMA %I TO {role} $$, schema);
+      END LOOP;
+    END;
+    $do$;""")))  # noqa: E501
 
 
 def main(args=None):
@@ -60,6 +92,9 @@ def main(args=None):
 
     # Run views
     execute_directory(directory / "derive", conn)
+
+    # Grant read permissions on entire database
+    grant(conn, db_params["database"])
 
     # Commit changes
     conn.commit()
