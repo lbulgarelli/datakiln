@@ -58,11 +58,9 @@ def grant(conn, role, users=None):
       FOR schema IN (
         SELECT nspname
         FROM pg_namespace
-        WHERE nspname NOT IN (
-            'information_schema'
-          , 'pg_catalog'
-          , 'pg_toast'
-        )
+        WHERE nspname NOT LIKE 'information_schema%'
+        AND nspname NOT LIKE 'pg_catalog%'
+        AND nspname NOT LIKE 'pg_toast%'
       ) LOOP
         EXECUTE format($$ GRANT USAGE ON SCHEMA %I TO {role} $$, schema);
         EXECUTE format($$ GRANT SELECT ON ALL SEQUENCES IN SCHEMA %I TO {role} $$, schema);
