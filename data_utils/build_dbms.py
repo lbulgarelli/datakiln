@@ -146,7 +146,10 @@ def generate_filter(data, columns, reference, cohort=False):
     """).format(
         columns=", ".join(columns),
         values="\n  , ".join([
-            str(tuple(row[reference["columns"]].fillna('').values))
+            str(tuple(row[reference["columns"]]
+                        .infer_objects(copy=False)
+                        .fillna('')
+                        .to_list()))
             for _, row in filter_data.iterrows()
         ])
     )
