@@ -61,6 +61,7 @@ def grant(conn, role, users=None):
         WHERE nspname NOT LIKE 'information_schema%'
         AND nspname NOT LIKE 'pg_catalog%'
         AND nspname NOT LIKE 'pg_toast%'
+        AND nspname NOT LIKE 'pg_temp%'
       ) LOOP
         EXECUTE format($$ GRANT USAGE ON SCHEMA %I TO {role} $$, schema);
         EXECUTE format($$ GRANT SELECT ON ALL SEQUENCES IN SCHEMA %I TO {role} $$, schema);
