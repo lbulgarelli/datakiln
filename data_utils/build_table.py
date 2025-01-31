@@ -2,6 +2,7 @@
 Creates table and loads data.
 """
 import re
+import csv
 import json
 import logging
 from pathlib import Path
@@ -369,7 +370,7 @@ class StageMeta(TableBase):
         # Get header from file
         reader = self._readers[data_path.suffix]
         buffer = reader(data_path, encoding=self.encoding)
-        header = next(buffer).replace("\n", "").split(",")
+        header = next(csv.reader(buffer))
 
         # To load the data, we need to order
         # the column list according to the file
