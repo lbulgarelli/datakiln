@@ -354,6 +354,21 @@ class StageMeta(TableBase):
         for column in self.columns:
             column.dtype = dict.fromkeys(column.dtype.keys(), "TEXT")
 
+    def create(self, conn):
+        """Create statement.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :return: None
+        """
+        super().create(conn)
+
+        # Add column to log staging errors
+        conn.execute(text(f"""
+        ALTER TABLE {self.schema}.{self.name} ADD COLUMN meta_log TEXT
+        """))
+
     def load(self, conn, data_path):
         """Stage data from a file.
 
@@ -365,7 +380,8 @@ class StageMeta(TableBase):
 
         :return: None
         """
-        logging.info("Table '%s'.'%s': Staging.", self.schema[4:], self.name)
+        logging.info("Table '%s'.'%s': Staging file '%s'.", self.schema[4:],
+                     self.name, data_path.name)
 
         # Get header from file
         reader = self._readers[data_path.suffix]
@@ -393,11 +409,6 @@ class StageMeta(TableBase):
         cursor = conn.connection().connection.cursor()
         cursor.copy_expert(stmt, buffer)
         buffer.close()
-
-        # Add column to log staging errors
-        conn.execute(text(f"""
-        ALTER TABLE {self.schema}.{self.name} ADD COLUMN meta_log TEXT
-        """))
 
 
 class TableMeta(TableBase):
@@ -699,14 +710,21 @@ def stage(meta_path, conn):
     meta_name = re.sub(r"^\d\d-", "", meta_path.stem)
     data_dir = meta_path.parents[1] / "data"
 
-    # Find data file
-    for file in data_dir.glob(f"{meta_name}.*"):
+    # Determine whether we need to load
+    # one or multiple files
+    if (table_dir := data_dir / meta_name).is_dir():
+        files = table_dir.iterdir()
+    else:
+        files = data_dir.glob(f"{meta_name}.*")
+
+    # Determine file type(s)
+    for file in files:
         if file.suffix not in StageMeta._readers:  # pylint: disable=protected-access # noqa: E501
             continue
         data_path = file.absolute()
 
-    # Stage data
-    table_meta.stage_meta.load(conn, data_path)
+        # Stage data
+        table_meta.stage_meta.load(conn, data_path)
 
     return table_meta
 
