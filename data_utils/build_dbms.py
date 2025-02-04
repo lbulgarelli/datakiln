@@ -138,6 +138,10 @@ def generate_filter(data, columns, reference, cohort=False):
         reference["columns"].append(0)
         filter_data[0] = 0
 
+    # Retrieve filter columns and drop duplicates
+    filter_data = filter_data[reference["columns"]]
+    filter_data = filter_data.drop_duplicates()
+
     # Generate IN expressions
     return dedent("""
     ({columns}) IN (
@@ -146,10 +150,10 @@ def generate_filter(data, columns, reference, cohort=False):
     """).format(
         columns=", ".join(columns),
         values="\n  , ".join([
-            str(tuple(row[reference["columns"]]
-                        .infer_objects(copy=False)
-                        .fillna('')
-                        .to_list()))
+            str(tuple(row
+                .infer_objects(copy=False)
+                .fillna('')
+                .to_list()))
             for _, row in filter_data.iterrows()
         ])
     )
