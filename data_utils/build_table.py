@@ -3,6 +3,7 @@ Creates table and loads data.
 """
 import re
 import csv
+import gzip
 import json
 import logging
 from pathlib import Path
@@ -335,6 +336,7 @@ class StageMeta(TableBase):
     """Metadata for table."""
     _readers = {
         ".csv": open,
+        ".csv.gz": gzip.open,
         ".xlsx": open_excel
     }
 
