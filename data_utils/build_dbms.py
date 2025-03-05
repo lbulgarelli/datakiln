@@ -3,14 +3,16 @@ Builds table metadata from DBMS
 """
 import json
 import logging
+from uuid import uuid4
 from pathlib import Path
 from textwrap import dedent
 from getpass import getpass, getuser
 
 import pandas as pd
 from sqlalchemy import MetaData, URL
-from sqlalchemy.engine import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.dialects import registry
+from sqlalchemy.orm.session import Session
 
 from data_utils.build_table import load_env
 from data_utils.build_json import get_parser
@@ -23,6 +25,9 @@ DRIVER = {
     "postgresql": "psycopg2",
     "oracle": "oracledb"
 }
+
+# Generate an UUID for the run
+UUID = str(uuid4()).rsplit("-")[-1]
 
 
 def get_metadata(conn, schema, tables):
@@ -108,11 +113,8 @@ def generate_table_meta(meta_dir, table, dialect=None):
         json.dump(meta, file, indent=4)
 
 
-def generate_filter(data, columns, reference, cohort=False):
+def generate_filter(columns, reference, alias=None, cohort=False):
     """Generate table metadata from DBMS.
-
-    :param data: Data of retrieved tables.
-    :type data: pandas.DataFrame
 
     :param columns: Columns used to filter.
     :type columns: list[str]
@@ -120,42 +122,27 @@ def generate_filter(data, columns, reference, cohort=False):
     :param reference: Columns used to filter in the reference table.
     :type reference: dict
 
-    :param cohort: Use cohort query to filter results.
-    :type cohort: bool
+    :param alias: Alias to use for the filtering table.
+    :type alias: str
 
     :return: .
     :rtype: str
     """
-    # Determine values to use in filter
-    if not cohort:
-        filter_data = data[reference["schema"]][reference["table"]]
-    else:
-        filter_data = data["cohort"]
-
-    # Adjust for single column
-    if len(columns) == 1:
-        columns.append("0")
-        reference["columns"].append(0)
-        filter_data[0] = 0
-
-    # Retrieve filter columns and drop duplicates
-    filter_data = filter_data[reference["columns"]]
-    filter_data = filter_data.drop_duplicates()
+    # Handle table name
+    table = "cohort" if cohort else reference["table"]
 
     # Generate IN expressions
     return dedent("""
-    ({columns}) IN (
-        {values}
-    )
+    JOIN tmp_{table}_{uuid} {alias}
+      ON {columns}
     """).format(
-        columns=", ".join(columns),
-        values="\n  , ".join([
-            str(tuple(row
-                .infer_objects(copy=False)
-                .fillna('')
-                .to_list()))
-            for _, row in filter_data.iterrows()
-        ])
+        table=table,
+        alias=alias,
+        uuid=UUID,
+        columns="\n  AND ".join(
+            f"src.{column} = {alias}.{reference}"
+            for column, reference in zip(columns, reference["columns"])
+        )
     )
 
 
@@ -178,23 +165,29 @@ def generate_table_data(conn, data, schema, table, filters):
     :type filters: dict
     """
     logging.info("GENERATING TABLE DATA: %s.%s", schema, table)
+
     # Generate query with filters
     sql = dedent("""
-    SELECT *
-    FROM {schema}.{table}
-    WHERE 1 = 1
-    AND {filters}
+    CREATE GLOBAL TEMPORARY TABLE tmp_{table}_{uuid} AS
+    SELECT src.*
+    FROM {schema}.{table} src
+    {filters}
     """).format(
         schema=schema,
         table=table,
-        filters="\nOR ".join(
-            generate_filter(data, **filter)[1:]
-            for filter in filters
+        uuid=UUID,
+        filters="".join(
+            generate_filter(alias=f"f_{idx}", **filter)[1:]
+            for idx, filter in enumerate(filters)
         )
     )
 
     # Retrieve data
-    data[schema][table] = pd.read_sql(sql, conn)
+    conn.execute(text(sql))
+    data[schema][table] = pd.concat(pd.read_sql(dedent(f"""
+    SELECT *
+    FROM tmp_{table}_{UUID}
+    """), conn, chunksize=10000))
 
 
 def main(args=None):
@@ -238,12 +231,19 @@ def main(args=None):
         host=args.host,
         database=args.database,
     )).connect()
+    conn.execution_options(stream_results=True)
 
     # Retrieve cohort data
     data = {}
     logging.info("GENERATING COHORT DATA")
     with open(directory / 'extract' / 'cohort.sql', encoding="utf-8") as file:
-        data["cohort"] = pd.read_sql(file.read(), conn)
+        conn.execute(text(dedent("""
+        CREATE GLOBAL TEMPORARY TABLE tmp_cohort_{uuid} AS
+        {query}
+        """).format(
+            uuid=UUID,
+            query=file.read()
+        )))
 
     # Retrieve information
     for file in sorted(directory.glob("extract/*.json")):
@@ -277,7 +277,6 @@ def main(args=None):
     # Get target database params
     db_params = load_env(directory)
 
-    _ = data.pop("cohort")
     for schema, tables in data.items():
         # Retrieve metadata from DBMS
         metadata = get_metadata(conn, schema, tables)
@@ -287,6 +286,8 @@ def main(args=None):
             logging.info("GENERATING TABLE METADATA: %s", table)
             generate_table_meta(meta_dir, table, db_params["dialect"])
 
+    # Close connection
+    conn.close()
 
 if __name__ == "__main__":
     main()
