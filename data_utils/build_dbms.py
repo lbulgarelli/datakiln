@@ -27,7 +27,7 @@ DRIVER = {
 }
 
 # Generate an UUID for the run
-UUID = str(uuid4()).rsplit("-")[-1]
+UUID = str(uuid4()).rsplit("-", maxsplit=1)[-1]
 
 
 def get_metadata(conn, schema, tables):
