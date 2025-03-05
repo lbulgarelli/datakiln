@@ -167,7 +167,7 @@ def generate_table_data(conn, data, schema, table, filters):
 
     # Generate query with filters
     sql = dedent("""
-    CREATE GLOBAL TEMPORARY TABLE tmp_{table}_{uuid} AS
+    CREATE TABLE tmp_{table}_{uuid} AS
     SELECT src.*
     FROM {schema}.{table} src
     {filters}
@@ -181,7 +181,7 @@ def generate_table_data(conn, data, schema, table, filters):
         )
     )
 
-    # Retrieve data
+    # Retrieve data:
     conn.execute(text(sql))
     data[schema][table] = pd.concat(pd.read_sql(dedent(f"""
     SELECT *
@@ -237,7 +237,7 @@ def main(args=None):
     logging.info("GENERATING COHORT DATA")
     with open(directory / 'extract' / 'cohort.sql', encoding="utf-8") as file:
         conn.execute(text(dedent("""
-        CREATE GLOBAL TEMPORARY TABLE tmp_cohort_{uuid} AS
+        CREATE TABLE tmp_cohort_{uuid} AS
         {query}
         """).format(
             uuid=UUID,
@@ -268,6 +268,12 @@ def main(args=None):
             encoding="utf-8",
             compression='gzip',
             index=False)  # Remove index for data_utils
+
+    # Delete tables
+    for schema, tables in data.items():
+        for table in tables.keys():
+            conn.execute(text(f"DROP TABLE tmp_{table}_{UUID}"))
+    conn.execute(text(f"DROP TABLE tmp_cohort_{UUID}"))
 
     # Skip json metadata generation
     if not args.json:
