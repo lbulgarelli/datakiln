@@ -12,7 +12,6 @@ import pandas as pd
 from sqlalchemy import MetaData, URL
 from sqlalchemy import create_engine, text
 from sqlalchemy.dialects import registry
-from sqlalchemy.orm.session import Session
 
 from data_utils.build_table import load_env
 from data_utils.build_json import get_parser
