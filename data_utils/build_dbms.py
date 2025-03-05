@@ -263,10 +263,11 @@ def main(args=None):
 
         # Export to file
         table = extract_meta["table"]
-        file_path = data_dir / f"{table}.csv"
+        file_path = data_dir / f"{table}.csv.gz"
         data[schema][table].to_csv(
             file_path,
             encoding="utf-8",
+            compression='gzip',
             index=False)  # Remove index for data_utils
 
     # Skip json metadata generation
