@@ -186,7 +186,7 @@ def generate_table_data(conn, data, schema, table, filters):
     data[schema][table] = pd.concat(pd.read_sql(dedent(f"""
     SELECT *
     FROM tmp_{table}_{UUID}
-    """), conn, chunksize=10000))
+    """), conn, chunksize=10000), ignore_index=True)
 
 
 def main(args=None):
