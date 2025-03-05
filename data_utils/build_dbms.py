@@ -2,6 +2,7 @@
 Builds table metadata from DBMS
 """
 import json
+import gzip
 import logging
 from uuid import uuid4
 from pathlib import Path
@@ -183,10 +184,10 @@ def generate_table_data(conn, data, schema, table, filters):
 
     # Retrieve data:
     conn.execute(text(sql))
-    data[schema][table] = pd.concat(pd.read_sql(dedent(f"""
+    data[schema][table] = pd.read_sql(dedent(f"""
     SELECT *
     FROM tmp_{table}_{UUID}
-    """), conn, chunksize=10000), ignore_index=True)
+    """), conn, chunksize=10000)
 
 
 def main(args=None):
@@ -261,13 +262,17 @@ def main(args=None):
         data_dir.mkdir(exist_ok=True)
 
         # Export to file
+        first_chunk = True
         table = extract_meta["table"]
         file_path = data_dir / f"{table}.csv.gz"
-        data[schema][table].to_csv(
-            file_path,
-            encoding="utf-8",
-            compression='gzip',
-            index=False)  # Remove index for data_utils
+        with gzip.open(file_path, mode='wt', encoding='utf-8') as o_file:
+            for chunk in data[schema][table]:
+                chunk.to_csv(
+                    o_file,
+                    header=first_chunk,
+                    encoding="utf-8",
+                    index=False)  # Remove index for data_utils
+                first_chunk = False
 
     # Delete tables
     for schema, tables in data.items():
