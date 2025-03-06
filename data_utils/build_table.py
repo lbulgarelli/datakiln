@@ -10,6 +10,7 @@ from pathlib import Path
 from getpass import getuser
 from textwrap import dedent
 from itertools import chain
+from functools import partial
 from dataclasses import dataclass
 
 from sqlalchemy.orm.session import Session
@@ -336,7 +337,7 @@ class StageMeta(TableBase):
     """Metadata for table."""
     _readers = {
         ".csv": open,
-        ".csv.gz": gzip.open,
+        ".csv.gz": partial(gzip.open, mode='rt'),
         ".xlsx": open_excel
     }
 
@@ -386,7 +387,8 @@ class StageMeta(TableBase):
                      self.name, data_path.name)
 
         # Get header from file
-        reader = self._readers[data_path.suffix]
+        suffix = "".join(data_path.suffixes)
+        reader = self._readers[suffix]
         buffer = reader(data_path, encoding=self.encoding)
         header = next(csv.reader(buffer))
 
@@ -721,7 +723,8 @@ def stage(meta_path, conn):
 
     # Determine file type(s)
     for file in files:
-        if file.suffix not in StageMeta._readers:  # pylint: disable=protected-access # noqa: E501
+        suffix = "".join(file.suffixes)
+        if suffix not in StageMeta._readers:  # pylint: disable=protected-access # noqa: E501
             continue
         data_path = file.absolute()
 
