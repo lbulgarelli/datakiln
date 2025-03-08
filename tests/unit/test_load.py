@@ -54,7 +54,7 @@ class TestBuild():
         for table_meta in self.tables_meta:
             data_path = TEST_DATA_PATH / f"{table_meta.name}.csv"
             stage_meta = table_meta.stage_meta
-            stage_meta.load(test_session, data_path)
+            stage_meta.load(test_session, data_path.absolute())
 
             # Get counts from csv
             data = pd.read_csv(data_path)
