@@ -107,6 +107,7 @@ def main(args=None):
 
     # Load to final schema and flush to database
     for table_meta in tables_meta:
+        table_meta.enforce_constraints(conn)
         table_meta.load(conn)
 
     # Run views

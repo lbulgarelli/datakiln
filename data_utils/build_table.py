@@ -229,7 +229,7 @@ class ForeignKeyMeta():
         )
         conn.execute(text(stmt))
 
-    def conditions(self):
+    def _conditions(self):
         """Generate comparisons to match each foreign key column.
 
         :return: Comparisons for each foreign key column.
@@ -255,13 +255,27 @@ class ForeignKeyMeta():
         :return: JOIN statement.
         :rtype: list[str]
         """
-        join = [f"JOIN {self.reference.schema}.{self.reference.table}"]
-        join.extend(self.conditions())
+        join = [f"LEFT JOIN {self.reference.schema}.{self.reference.table}"]
+        join.extend(self._conditions())
 
         # Add ON clause to first comparison
         join[1] = "  ON" + join[1]
 
         return join
+
+    def is_reference_null(self):
+        """Check if foreign column is null.
+
+        :return: Comparisons for each foreign key column.
+        :rtype: list[str]
+        """
+        conditions = []
+
+        # Generate one comparison statement for each foreign key column
+        for column in self.reference.columns:
+            conditions.append(f"AND {self.reference.table}.{column} IS NULL")
+
+        return conditions
 
 
 class TableBase():
@@ -332,6 +346,11 @@ class TableBase():
         )
         conn.execute(text(stmt))
 
+        # Create index to speed up validations
+        conn.execute(text(f"""
+        CREATE INDEX ON {self.schema}.{self.name} (meta_row_id)
+        """))
+
 
 class StageMeta(TableBase):
     """Metadata for table."""
@@ -370,6 +389,11 @@ class StageMeta(TableBase):
         # Add column to log staging errors
         conn.execute(text(f"""
         ALTER TABLE {self.schema}.{self.name} ADD COLUMN meta_log TEXT
+        """))
+
+        # Create index to speed up validations
+        conn.execute(text(f"""
+        CREATE INDEX ON {self.schema}.{self.name} (meta_log)
         """))
 
     def load(self, conn, data_path):
@@ -468,104 +492,7 @@ class TableMeta(TableBase):
         # Create stage as well
         self.stage_meta.create(conn)
 
-    def load(self, conn):
-        """Load data from stage.
-
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
-
-        :return: None
-        """
-        # Generate JOIN statements for foreign keys
-        join_fks = map(ForeignKeyMeta.join, self.foreign_keys)
-
-        # Filters can be set in transform stage by filling this column
-        where_reqs = ["WHERE meta_log IS NULL"]
-
-        columns = []
-        for column in self.columns:
-            # Append to list of columns to be retrieved
-            columns.append(str(column))
-
-            # Add required columns to where statement filtering not null values
-            if not column.required:
-                continue
-            where_reqs.append(f"{self.name}.{column} IS NOT NULL")
-
-        # Move rows from staging to final schema
-        logging.info("Table '%s'.'%s': Loading.", self.schema, self.name)
-
-        # Enforce primary key
-        stmt = dedent("""
-        ALTER TABLE {schema}.{name} ADD PRIMARY KEY ({pk})
-        """).format(
-            name=self.name, schema=self.schema,
-            pk=', '.join(self.primary_key)
-        )
-        conn.execute(text(stmt))
-
-        stmt = dedent("""
-        WITH not_null AS (
-          SELECT
-              {columns}
-            , {row_id}
-          FROM stg_{schema}.{name}
-          {where_reqs}
-        )
-        , moving AS (
-          SELECT
-              {name}.{columns_aliased}
-            , {name}.{row_id}
-          FROM not_null {name}
-          {join_fks}
-        )
-        , moved AS (
-          INSERT INTO {schema}.{name} (
-              {columns}
-            , {row_id}
-          )
-          SELECT *
-          FROM moving
-          ON CONFLICT DO NOTHING
-          RETURNING {row_id}
-        )
-        , delete AS (
-          DELETE FROM stg_{schema}.{name}
-          USING moved
-          WHERE {name}.meta_row_id = moved.meta_row_id
-          RETURNING {name}.{row_id}
-        )
-        , required AS (
-          UPDATE stg_{schema}.{name}
-          SET meta_log = 'Required'
-          WHERE meta_log IS NULL
-          AND meta_row_id NOT IN (SELECT meta_row_id FROM not_null)
-        )
-        , duplicate AS (
-          UPDATE stg_{schema}.{name}
-          SET meta_log = 'Duplicate'
-          FROM moving
-          WHERE {name}.meta_row_id = moving.meta_row_id
-        )
-        SELECT * FROM delete
-        """).format(
-            name=self.name, schema=self.schema, row_id=self._row_id,
-            columns_aliased=f"\n    , {self.name}.".join(columns),
-            columns="\n    , ".join(columns),
-            where_reqs="\n     AND ".join(where_reqs),
-            join_fks="\n  ".join(chain(*join_fks))
-        )
-        conn.execute(text(stmt))
-
-        # The remaining rows that were not moved from staging
-        # violated a foreign key constraint
-        stmt = dedent(f"""
-        UPDATE stg_{self.schema}.{self.name}
-        SET meta_log = 'Constraint violation (foreign key)'
-        WHERE meta_log IS NULL
-        """)
-        conn.execute(text(stmt))
-
+    def enforce_constraints(self, conn):
         # Get database dialect from connection
         dialect = conn.bind.dialect.name
 
@@ -594,9 +521,127 @@ class TableMeta(TableBase):
                 column.enforce_required(
                     conn, schema=self.schema, name=self.name)
 
+    def load(self, conn):
+        """Load data from stage.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :return: None
+        """
+        # Generate JOIN statements for foreign keys
+        join_fks = list(map(ForeignKeyMeta.join, self.foreign_keys))
+        null_fks = map(ForeignKeyMeta.is_reference_null, self.foreign_keys)
+
+        # Get database dialect from connection
+        dialect = conn.bind.dialect.name
+
+        where_reqs = ["0 = 1"]
+        columns, typed = [], []
+        for column in self.columns:
+            # Append to list of columns to be retrieved
+            columns.append(str(column))
+            typed.append(f"{column.rename}::{column.dtype[dialect]}")
+
+            # Add required columns to where statement filtering not null values
+            if not column.required:
+                continue
+            where_reqs.append(f"{self.name}.{column} IS NULL")
+
+        # Move rows from staging to final schema
+        logging.info("Table '%s'.'%s': Loading.", self.schema, self.name)
+
+        # Enforce primary key
+        stmt = dedent("""
+        ALTER TABLE {schema}.{name} ADD PRIMARY KEY ({pk})
+        """).format(
+            name=self.name, schema=self.schema,
+            pk=', '.join(self.primary_key)
+        )
+        conn.execute(text(stmt))
+
+        # Flag rows missing required columns
+        stmt = dedent("""
+        UPDATE stg_{schema}.{name}
+        SET meta_log = 'Required'
+        WHERE 1 = 1
+        AND meta_log IS NULL
+        AND (
+            {where_reqs}
+        )
+        """).format(
+            name=self.name, schema=self.schema,
+            where_reqs="\n  OR ".join(where_reqs)
+        )
+        conn.execute(text(stmt))
+
+        # Flag rows violating a foreign key constraint
+        stmt = dedent("""
+        WITH missing_fk AS (
+          SELECT {name}.{row_id}
+          FROM stg_{schema}.{name}
+          {join_fks}
+          WHERE {n_fks} > 0
+          AND {name}.meta_log IS NULL
+          {null_fks}
+        )
+        UPDATE stg_{schema}.{name}
+        SET meta_log = 'Constraint violation (foreign key)'
+        FROM missing_fk
+        WHERE {name}.{row_id} = missing_fk.{row_id}
+        """).format(
+            name=self.name, schema=self.schema, row_id=self._row_id,
+            join_fks="\n  ".join(chain(*join_fks)),
+            n_fks=len(join_fks),
+            null_fks="\n  ".join(chain(*null_fks)),
+        )
+        conn.execute(text(stmt))
+
+        # Move rows to final schema
+        stmt = dedent("""
+        INSERT INTO {schema}.{name} (
+            {columns}
+          , {row_id}
+        )
+        SELECT
+            {typed}
+          , {row_id}
+        FROM stg_{schema}.{name}
+        WHERE 1 = 1
+        AND meta_log IS NULL
+        ON CONFLICT DO NOTHING
+        """).format(
+            name=self.name, schema=self.schema, row_id=self._row_id,
+            columns="\n  , ".join(columns),
+            typed="\n  , ".join(typed),
+        )
+        conn.execute(text(stmt))
+
+        # Deleted moved rows
+        stmt = dedent("""
+        DELETE FROM stg_{schema}.{name}
+        USING {schema}.{name} moved
+        WHERE {name}.meta_row_id = moved.meta_row_id
+        """).format(
+            name=self.name, schema=self.schema
+        )
+        conn.execute(text(stmt))
+
+        # Rows that still remain in staging but did not
+        # get flagged before this point are PK duplicates
+        stmt = dedent("""
+        UPDATE stg_{schema}.{name}
+        SET meta_log = 'Duplicate'
+        WHERE 1 = 1
+        AND meta_log IS NULL
+        """).format(
+            name=self.name, schema=self.schema
+        )
+        conn.execute(text(stmt))
+
         # Warn of any remaining staged records
         count = conn.execute(text(f"""
-        SELECT COUNT(*) FROM stg_{self.schema}.{self.name}
+        SELECT COUNT(meta_row_id) FROM stg_{self.schema}.{self.name}
         """)).first()[0]
         if count > 0:
             logging.warning(
@@ -749,6 +794,7 @@ def main(args=None):
 
     # Load to final schema and commit changes
     table_meta = stage(meta_path, conn)
+    table_meta.enforce_constraints(conn)
     table_meta.load(conn)
     conn.commit()
 
