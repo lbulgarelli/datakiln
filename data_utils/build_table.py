@@ -493,6 +493,13 @@ class TableMeta(TableBase):
         self.stage_meta.create(conn)
 
     def enforce_constraints(self, conn):
+        """Enforce table constraints.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :return: None
+        """
         # Get database dialect from connection
         dialect = conn.bind.dialect.name
 
