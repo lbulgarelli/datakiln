@@ -133,8 +133,12 @@ def generate_filter(columns, reference, alias=None, cohort=False):
 
     # Generate IN expressions
     return dedent("""
-    JOIN tmp_{table}_{uuid} {alias}
-      ON {columns}
+    AND EXISTS (
+      SELECT 1
+      FROM tmp_{table}_{uuid} {alias}
+      WHERE 1 = 1
+      AND {columns}
+    )
     """).format(
         table=table,
         alias=alias,
@@ -171,6 +175,7 @@ def generate_table_data(conn, data, schema, table, filters):
     CREATE TABLE tmp_{table}_{uuid} AS
     SELECT src.*
     FROM {schema}.{table} src
+    WHERE 1 = 1
     {filters}
     """).format(
         schema=schema,
