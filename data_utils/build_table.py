@@ -442,7 +442,7 @@ class StageMeta(TableBase):
 class TableMeta(TableBase):
     """Metadata for table."""
 
-    def __init__(self, constraints=None, **kwargs):
+    def __init__(self, constraints=None, indexes=None, **kwargs):
         r"""
         :param constraints: Metadata for table constraints.
         :type constraints: dict
@@ -456,6 +456,7 @@ class TableMeta(TableBase):
         super().__init__(**kwargs)
 
         self.primary_key = constraints["primary_key"]
+        self.indexes = indexes or []
         self.foreign_keys = []
 
         # Instantiate metadata object for all foreign keys
@@ -527,6 +528,26 @@ class TableMeta(TableBase):
             if column.required:
                 column.enforce_required(
                     conn, schema=self.schema, name=self.name)
+
+    def create_indexes(self, conn):
+        """Create table indexes.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :return: None
+        """
+        for index in self.indexes:
+            logging.info("Table '%s'.'%s': Creating index %s.", self.schema,
+                         self.name, tuple(index))
+            stmt = dedent("""
+            CREATE INDEX ON {schema}.{name} ({columns})
+            """).format(
+                schema=self.schema,
+                name=self.name,
+                columns=", ".join(index)
+            )
+            conn.execute(text(stmt))
 
     def load(self, conn):
         """Load data from stage.
@@ -803,6 +824,7 @@ def main(args=None):
     table_meta = stage(meta_path, conn)
     table_meta.enforce_constraints(conn)
     table_meta.load(conn)
+    table_meta.create_indexes(conn)
     conn.commit()
 
     # Close connection

@@ -109,6 +109,7 @@ def main(args=None):
     for table_meta in tables_meta:
         table_meta.enforce_constraints(conn)
         table_meta.load(conn)
+        table_meta.create_indexes(conn)
 
     # Run views
     execute_directory(directory / "derive", conn)
