@@ -94,7 +94,7 @@ class ColumnMeta():
         :return: None
         """
         stmt = dedent("""
-        UPDATE {schema}.{table}
+        UPDATE stg_{schema}.{table}
         SET {name} = NULL
         WHERE {name} IN (
             '{na_values}'
