@@ -177,29 +177,6 @@ class ColumnMeta():
         """)
         conn.execute(text(stmt))
 
-    def add(self, conn, schema, name):
-        """Add column to table.
-
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
-
-        :param schema: Table schema.
-        :type schema: str
-
-        :param name: Table name.
-        :type name: str
-
-        :return: None
-        """
-        stmt = dedent("""
-        ALTER TABLE {schema}.{name} ADD COLUMN {column} TEXT;
-        """).format(
-            schema=schema,
-            name=name,
-            column=self.name
-        )
-        conn.execute(text(stmt))
-
 
 class UnpivotColumnMeta(ColumnMeta):
     """Metadata for columns that are unpivoting targets."""
@@ -534,6 +511,14 @@ class TableBase():
         conn.execute(text(
             f"DROP TABLE IF EXISTS {self.schema}.{self.name} CASCADE"))
 
+        # Add columns from unpivot in correct order
+        columns = self.columns.copy()
+        if hasattr(self, "unpivot_meta"):
+            for upv in self.unpivot_meta:
+                for column in upv.target_columns:
+                    columns.insert(column.order, column)
+                columns.extend(upv.target_values)
+
         # Creates table. All columns initially have TEXT type.
         # Types are enforced after loading the data one column
         # at a time so we can identify the specific column
@@ -546,7 +531,7 @@ class TableBase():
         )
         """).format(
             name=self.name, schema=self.schema, row_id=self._row_id,
-            columns=' TEXT\n  , '.join(map(str, self.columns)),
+            columns=' TEXT\n  , '.join(map(str, columns)),
         )
         conn.execute(text(stmt))
 
@@ -729,7 +714,6 @@ class TableMeta(TableBase):
             for column in upv.columns():
                 columns.append(column.name)
                 aliased.append(f"{upv.alias}.{column.name}")
-                column.add(conn, self.schema, self.name)
             laterals.append(upv.lateral())
 
         # Include columns that are not affected
