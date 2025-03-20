@@ -328,7 +328,7 @@ class UnpivotMeta():
         expressions = []
         for vals, v_cols in exp_dict.items():
             expression = list(vals) + v_cols
-            expression = f"({", ".join(expression)})"
+            expression = f"({', '.join(expression)})"
             expressions.append(expression)
         return expressions
 
