@@ -398,7 +398,7 @@ class ForeignKeyMeta():
     def __init__(self, table, columns, reference):
         """
         :param table: Table referencing the foreign key.
-        :type table: str
+        :type table: TableMeta
 
         :param columns: Columns referencing the foreign key.
         :type columns: str
@@ -422,14 +422,14 @@ class ForeignKeyMeta():
         :return: None
         """
         stmt = dedent("""
-        ALTER TABLE {schema}.{table}
-        ADD FOREIGN KEY ({columns})
-        REFERENCES {schema}.{table} ({reference})
+        ALTER TABLE {table.schema}.{table.name}
+        ADD FOREIGN KEY ({t_columns})
+        REFERENCES {reference.schema}.{reference.table} ({r_columns})
         """).format(
-            columns=", ".join(self.columns),
-            schema=self.reference.schema,
-            table=self.reference.table,
-            reference=", ".join(self.reference.columns)
+            table=self.table,
+            t_columns=", ".join(self.columns),
+            reference=self.reference,
+            r_columns=", ".join(self.reference.columns)
         )
         conn.execute(text(stmt))
 
@@ -444,7 +444,7 @@ class ForeignKeyMeta():
         # Generate one comparison statement for each foreign key column
         for column, o_column in zip(self.columns, self.reference.columns):
             conditions.append(
-                f"  AND {self.table}.{column} = "
+                f"  AND {self.table.name}.{column} = "
                 f"{self.reference.table}.{o_column}::TEXT"
             )
 
@@ -669,7 +669,7 @@ class TableMeta(TableBase):
 
         # Instantiate metadata object for all foreign keys
         for fk in constraints.get("foreign_keys", []):
-            fk_meta = ForeignKeyMeta(table=self.name, **fk)
+            fk_meta = ForeignKeyMeta(table=self, **fk)
             self.foreign_keys.append(fk_meta)
 
         # Unpivot
@@ -794,10 +794,6 @@ class TableMeta(TableBase):
 
         :return: None
         """
-        # Enforce foreign keys
-        for fk in self.foreign_keys:
-            fk.create(conn)
-
         # Enforce constraints
         for column in self.columns:
             # Resolve NULL values
@@ -816,6 +812,10 @@ class TableMeta(TableBase):
             # Enforce required
             column.enforce_required(
                 conn, schema=self.schema, name=self.name)
+
+        # Enforce foreign keys
+        for fk in self.foreign_keys:
+            fk.create(conn)
 
     def create_indexes(self, conn):
         """Create table indexes.
