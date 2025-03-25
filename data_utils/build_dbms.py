@@ -219,7 +219,7 @@ def main(args=None):
     parser.add_argument('--database', metavar="database", type=str,
                         required=True,
                         help='Database to connect to in the source DBMS.')
-    parser.add_argument('--json', action='store_true', default=False,
+    parser.add_argument('--metadata', action='store_true', default=False,
                         help='Whether to export the JSON table metadata.')
     args = parser.parse_args(args)
     directory = Path(args.directory).absolute()
@@ -286,7 +286,7 @@ def main(args=None):
     conn.execute(text(f"DROP TABLE tmp_cohort_{UUID}"))
 
     # Skip json metadata generation
-    if not args.json:
+    if not args.metadata:
         return
 
     # Get target database params
