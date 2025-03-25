@@ -61,7 +61,7 @@ setup(
     # Add to site-packages
     entry_points={
         "console_scripts": [
-            'build_json = data_utils.build_json:main',
+            'build_metadata = data_utils.build_metadata:main',
             'build_table = data_utils.build_table:main',
             'build_database = data_utils.build_database:main',
             'build_dbms = data_utils.build_dbms:main'

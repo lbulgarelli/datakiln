@@ -10,7 +10,7 @@ from pathlib import Path
 
 from redcap import Project  # pylint: disable=import-error
 
-from data_utils.build_json import get_parser
+from data_utils.build_metadata import get_parser
 
 logging.basicConfig(
     level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',

@@ -15,7 +15,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.dialects import registry
 
 from data_utils.build_table import load_env
-from data_utils.build_json import get_parser
+from data_utils.build_metadata import get_parser
 
 logging.basicConfig(
     level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',
