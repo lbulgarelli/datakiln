@@ -277,14 +277,15 @@ def main(args=None):
         if args.include is None:
             included.insert(0, extract_meta)
         # If table is specified, include it
-        elif table in args.include:
+        # Any tables used in filtering need to be included as well
+        elif table in set(args.include) | dependencies:
             included.insert(0, extract_meta)
             for table_filter in extract_meta["filters"]:
+                # Skip cohort filter
+                if table_filter.get("cohort", False):
+                    continue
                 reference = table_filter["reference"]
                 dependencies.add(f"{reference['schema']}.{reference['table']}")
-        # Any tables used in filtering need to be included as well
-        elif table in dependencies:
-            included.insert(0, extract_meta)
 
     # Retrieve information
     for extract_meta in included:
