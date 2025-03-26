@@ -7,7 +7,7 @@ from textwrap import dedent
 
 from sqlalchemy import text
 
-from data_utils.build_json import get_parser
+from data_utils.build_metadata import get_parser
 from data_utils.build_table import load_env, connect, stage
 
 

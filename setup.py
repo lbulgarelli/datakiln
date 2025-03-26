@@ -21,7 +21,7 @@ setup(
     # Versions should comply with PEP440. For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='0.1.55',
+    version='0.1.56',
     description='Data Utilities.',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -61,7 +61,7 @@ setup(
     # Add to site-packages
     entry_points={
         "console_scripts": [
-            'build_json = data_utils.build_json:main',
+            'build_metadata = data_utils.build_metadata:main',
             'build_table = data_utils.build_table:main',
             'build_database = data_utils.build_database:main',
             'build_dbms = data_utils.build_dbms:main'

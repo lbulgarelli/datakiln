@@ -15,7 +15,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.dialects import registry
 
 from data_utils.build_table import load_env
-from data_utils.build_json import get_parser
+from data_utils.build_metadata import get_parser
 
 logging.basicConfig(
     level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',
@@ -150,7 +150,8 @@ def generate_filter(columns, reference, alias=None, cohort=False):
     )
 
 
-def generate_table_data(conn, data, schema, table, filters):
+def generate_table_data(conn, data, schema, table, filters, export=True):
+    # pylint: disable=too-many-arguments, too-many-positional-arguments
     """Generate table metadata from DBMS.
 
     :param conn: SQLAlchemy connection or session.
@@ -167,6 +168,9 @@ def generate_table_data(conn, data, schema, table, filters):
 
     :param filters: Metadata for filters.
     :type filters: dict
+
+    :param export: Is the table going to be exported?
+    :type export: bool
     """
     logging.info("GENERATING TABLE DATA: %s.%s", schema, table)
 
@@ -186,9 +190,14 @@ def generate_table_data(conn, data, schema, table, filters):
             for idx, filter in enumerate(filters)
         )
     )
-
-    # Retrieve data:
     conn.execute(text(sql))
+
+    # Skip retrieval if its not going to be exported
+    if not export:
+        data[schema][table] = []
+        return
+
+    # Retrieve data
     data[schema][table] = pd.read_sql(dedent(f"""
     SELECT *
     FROM tmp_{table}_{UUID}
@@ -196,8 +205,8 @@ def generate_table_data(conn, data, schema, table, filters):
 
 
 def main(args=None):
-    # pylint: disable=too-many-locals
-    """Downloads data and creates sample jsons for tables."""
+    # pylint: disable=too-many-locals, too-many-branches, too-many-statements
+    """Downloads data and creates sample metadata for tables."""
     # Arguments
     parser = get_parser()
     parser.add_argument('--dialect', metavar="dialect", type=str,
@@ -219,8 +228,10 @@ def main(args=None):
     parser.add_argument('--database', metavar="database", type=str,
                         required=True,
                         help='Database to connect to in the source DBMS.')
-    parser.add_argument('--json', action='store_true', default=False,
+    parser.add_argument('--metadata', action='store_true', default=False,
                         help='Whether to export the JSON table metadata.')
+    parser.add_argument('--include', type=str, required=False, nargs='+',
+                        help='Limit data extraction to the specified tables.')
     args = parser.parse_args(args)
     directory = Path(args.directory).absolute()
 
@@ -250,43 +261,74 @@ def main(args=None):
             query=file.read()
         )))
 
-    # Retrieve information
-    for file in sorted(directory.glob("extract/*.json")):
+    # Create data directory if not exists
+    data_dir = directory / "data"
+    data_dir.mkdir(exist_ok=True)
+
+    # Define which tables to include
+    included = []
+    dependencies = set()
+    for file in sorted(directory.glob("extract/*.json"), reverse=True):
         # Load extraction metadata
         extract_meta = json.load(file.open())
+        table = f"{extract_meta['schema']}.{extract_meta['table']}"
 
+        # We include all tables if none are specified
+        if args.include is None:
+            included.insert(0, extract_meta)
+        # If table is specified, include it
+        elif table in args.include:
+            included.insert(0, extract_meta)
+            for table_filter in extract_meta["filters"]:
+                reference = table_filter["reference"]
+                dependencies.add(f"{reference['schema']}.{reference['table']}")
+        # Any tables used in filtering need to be included as well
+        elif table in dependencies:
+            included.insert(0, extract_meta)
+
+    # Retrieve information
+    for extract_meta in included:
         # Create dict entry for schema
         if (schema := extract_meta["schema"]) not in data:
             data[schema] = {}
 
         # Retrieve data
-        generate_table_data(conn, data, **extract_meta)
+        table = f"{extract_meta['schema']}.{extract_meta['table']}"
+        export = table in args.include
+        generate_table_data(conn, data, **extract_meta, export=export)
 
-        # Create data directory if not exists
-        data_dir = directory / "data"
-        data_dir.mkdir(exist_ok=True)
+        # Skip export if empty
+        table = extract_meta["table"]
+        if not data[schema][table]:
+            continue
 
         # Export to file
         first_chunk = True
-        table = extract_meta["table"]
         file_path = data_dir / f"{table}.csv.gz"
+        logging.info("EXPORTING TABLE DATA: %s.%s", schema, table)
         with gzip.open(file_path, mode='wt', encoding='utf-8') as o_file:
             for chunk in data[schema][table]:
                 chunk.to_csv(
                     o_file,
                     header=first_chunk,
                     encoding="utf-8",
-                    index=False)  # Remove index for data_utils
+                    index=False)
                 first_chunk = False
 
-    # Delete tables
+    # Drop tables
     for schema, tables in data.items():
-        for table in tables.keys():
+        for table in list(tables.keys()):
             conn.execute(text(f"DROP TABLE tmp_{table}_{UUID}"))
+
+            # We remove tables from dict if they are not included
+            if f"{schema}.{table}" not in args.include:
+                tables.pop(table)
+
+    # Drop cohort table
     conn.execute(text(f"DROP TABLE tmp_cohort_{UUID}"))
 
-    # Skip json metadata generation
-    if not args.json:
+    # Skip metadata generation
+    if not args.metadata:
         return
 
     # Get target database params
