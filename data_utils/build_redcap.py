@@ -82,15 +82,18 @@ def get_postgres_type(field_type, validation):
     :return: PostgreSQL data type.
     :rtype: str
     """
+    print(validation)
     if field_type == "checkbox":
         return "INTEGER[]"
     if validation == "integer":
         return "INTEGER"
     if validation == "number":
         return "DOUBLE PRECISION"
-    if validation == "date_dmy":
+    if validation in ["date_dmy", "date_ymd", "date_mdy"]:
         return "DATE"
-    if validation in ["datetime_dmy", "datetime_seconds_dmy"]:
+    if validation in ["datetime_dmy", "datetime_seconds_dmy",
+                      "datetime_ymd", "datetime_seconds_ymd",
+                      "datetime_mdy", "datetime_seconds_mdy"]:
         return "TIMESTAMP"
     return "TEXT"
 

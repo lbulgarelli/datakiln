@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """
 Creates table and loads data.
 """
@@ -12,6 +13,7 @@ from textwrap import dedent
 from itertools import chain
 from functools import partial
 from dataclasses import dataclass
+from collections import defaultdict
 
 from sqlalchemy.orm.session import Session
 from sqlalchemy import create_engine, text
@@ -106,7 +108,7 @@ class ColumnMeta():
         )
         conn.execute(text(stmt))
 
-    def enforce_type(self, conn, schema, name, dialect):
+    def enforce_type(self, conn, schema, name):
         """Resolve NULL values
 
         :param conn: SQLAlchemy connection or session.
@@ -118,11 +120,11 @@ class ColumnMeta():
         :param name: Table name.
         :type name: str
 
-        :param dialect: Dialect of the Database.
-        :type dialect: str
-
         :return: None
         """
+        # Get database dialect from connection
+        dialect = conn.bind.dialect.name
+
         stmt = dedent(f"""
         ALTER TABLE {schema}.{name}
         ALTER COLUMN {self.rename} TYPE {self.dtype[dialect]}
@@ -144,6 +146,9 @@ class ColumnMeta():
 
         :return: None
         """
+        if not self.required:
+            return
+
         stmt = dedent(f"""
         ALTER TABLE {schema}.{name}
         ALTER COLUMN {self.rename} SET NOT NULL
@@ -164,10 +169,186 @@ class ColumnMeta():
 
         :return: None
         """
+        if self.description is None:
+            return
+
         stmt = dedent(f"""
         COMMENT ON COLUMN {schema}.{name}.{self.rename} IS '{self.description}'
         """)
         conn.execute(text(stmt))
+
+
+class UnpivotColumnMeta(ColumnMeta):
+    """Metadata for columns that are unpivoting targets."""
+    def __init__(self, unpivot, regex=None, order=1000, **kwargs):
+        r"""
+        :param unpivot: Metadata of this column's unpivot.
+        :type unpivot: UnpivotMeta
+
+        :param regex: Pattern for target column.
+        :type regex: str
+
+        :param order: Position of the column in the target table.
+        :type order: int
+
+        :param \**kwargs: `ColumnMeta` attributes.
+        :type \**kwargs: dict
+
+        :return: Unpivot column metadata.
+        :rtype: UnpivotColumnMeta
+        """
+        self.unpivot = unpivot
+        self.regex = regex
+        self.order = order
+
+        super().__init__(**kwargs)
+
+    def value(self, column):
+        """Value for the column to be unpivoted.
+
+        :param column: Name of the column to be unpivoted.
+        :type column: dict
+
+        :return: Unpivot value.
+        :rtype: str
+        """
+        match = re.search(self.regex, column)
+        if self.regex and not match:
+            return "NULL"
+        return f"'{''.join(match.groups())}'"
+
+
+class UnpivotValueMeta(ColumnMeta):
+    """Metadata for columns that will store unpivoted values."""
+    def __init__(self, unpivot, columns, **kwargs):
+        r"""
+        :param unpivot: Metadata of this column's unpivot.
+        :type unpivot: UnpivotMeta
+
+        :param columns: Columns storing the values.
+        :type columns: list[str]
+
+        :return: Column metadata.
+        :rtype: ColumnMeta
+        """
+        self.unpivot = unpivot
+        super().__init__(**kwargs)
+
+        self.columns = []
+        for column in columns:
+            column_meta = ColumnMeta(
+                dtype={
+                    "postgresql": "TEXT"
+                },
+                name=column
+            )
+            self.columns.append(column_meta)
+
+
+class UnpivotMeta():
+    """Metadata for unpivoting columns."""
+    def __init__(self, alias, target_columns, target_values, **kwargs):
+        r"""
+        :param alias: Alias for the LATERAL join.
+        :type alias: str
+
+        :param target_columns: Metadata for target columns.
+        :type target_columns: list[str]
+
+        :param target_values: Metadata for target value column.
+        :type target_values: dict
+
+        :param \**kwargs: `UnpivotColumnMeta` attributes.
+        :type \**kwargs: dict
+
+        :return: Unpivot metadata.
+        :rtype: UnpivotMeta
+        """
+        self.alias = alias
+
+        # Target columns
+        self.target_columns = []
+        for target in target_columns:
+            target_meta = UnpivotColumnMeta(self, **target, **kwargs)
+            self.target_columns.append(target_meta)
+
+        # Target value
+        self.target_values = []
+        for value in target_values:
+            value_meta = UnpivotValueMeta(self, **value, **kwargs)
+            self.target_values.append(value_meta)
+
+    def columns(self, unpivot=True):
+        """Unpivot columns.
+
+        :return: Pivot columns.
+        :rtype: list[ColumnMeta]
+        """
+        # List target columns
+        if unpivot:
+            return self.target_columns + self.target_values
+
+        # List original columns
+        columns = []
+        for value in self.target_values:
+            columns.extend(value.columns)
+        return columns
+
+    def values(self):
+        """SQL with VALUES to use in LATERAL JOIN.
+
+        :return: Values.
+        :rtype: list[str]
+        """
+        # Generate expressions
+        exp_dict = defaultdict(list)
+        for idx, value in enumerate(self.target_values):
+            value_columns = []
+            # Retrieve name for columns being pivoted
+            for pivot in value.columns:
+                value_columns.append(pivot.name)
+
+            values = []
+            # Extract values from columns
+            for target in self.target_columns:
+                values.append(list(map(target.value, value_columns)))
+
+            # Add columns to list for each value found
+            expression = dict(zip(zip(*values), value_columns))
+            keys = exp_dict.keys() | expression.keys()
+            for key in keys:
+                value = expression.get(key, 'NULL')
+                # Prepend NULL if value not seen before
+                if idx and key not in exp_dict:
+                    count = len(list(exp_dict.items())[0]) + 1
+                    exp_dict[key].extend(['NULL'] * count)
+                exp_dict[key].append(value)
+
+        # Parse unpivoting columns to string
+        expressions = []
+        for vals, v_cols in exp_dict.items():
+            expression = list(vals) + v_cols
+            expression = f"({', '.join(expression)})"
+            expressions.append(expression)
+        return expressions
+
+    def lateral(self):
+        """Returns the LATERAL JOIN to unpivot a table.
+
+        :return: LATERAL JOIN expression.
+        :rtype: list[str]
+        """
+        return dedent("""
+        LATERAL ( VALUES
+            {values}
+        ) AS {alias} (
+            {columns}
+        )
+        """).format(
+            values="\n  , ".join(self.values()),
+            alias=self.alias,
+            columns="\n  , ".join(map(str, self.columns()))
+        )[1:]
 
 
 @dataclass
@@ -194,7 +375,7 @@ class ForeignKeyMeta():
     def __init__(self, table, columns, reference):
         """
         :param table: Table referencing the foreign key.
-        :type table: str
+        :type table: TableMeta
 
         :param columns: Columns referencing the foreign key.
         :type columns: str
@@ -218,14 +399,14 @@ class ForeignKeyMeta():
         :return: None
         """
         stmt = dedent("""
-        ALTER TABLE {schema}.{table}
-        ADD FOREIGN KEY ({columns})
-        REFERENCES {schema}.{table} ({reference})
+        ALTER TABLE {table.schema}.{table.name}
+        ADD FOREIGN KEY ({t_columns})
+        REFERENCES {reference.schema}.{reference.table} ({r_columns})
         """).format(
-            columns=", ".join(self.columns),
-            schema=self.reference.schema,
-            table=self.reference.table,
-            reference=", ".join(self.reference.columns)
+            table=self.table,
+            t_columns=", ".join(self.columns),
+            reference=self.reference,
+            r_columns=", ".join(self.reference.columns)
         )
         conn.execute(text(stmt))
 
@@ -240,7 +421,7 @@ class ForeignKeyMeta():
         # Generate one comparison statement for each foreign key column
         for column, o_column in zip(self.columns, self.reference.columns):
             conditions.append(
-                f"  AND {self.table}.{column} = "
+                f"  AND {self.table.name}.{column} = "
                 f"{self.reference.table}.{o_column}::TEXT"
             )
 
@@ -330,6 +511,14 @@ class TableBase():
         conn.execute(text(
             f"DROP TABLE IF EXISTS {self.schema}.{self.name} CASCADE"))
 
+        # Add columns from unpivot in correct order
+        columns = self.columns.copy()
+        if hasattr(self, "unpivot_meta"):
+            for upv in self.unpivot_meta:
+                for column in upv.target_columns:
+                    columns.insert(column.order, column)
+                columns.extend(upv.target_values)
+
         # Creates table. All columns initially have TEXT type.
         # Types are enforced after loading the data one column
         # at a time so we can identify the specific column
@@ -342,7 +531,7 @@ class TableBase():
         )
         """).format(
             name=self.name, schema=self.schema, row_id=self._row_id,
-            columns=' TEXT\n  , '.join(map(str, self.columns)),
+            columns=' TEXT\n  , '.join(map(str, columns)),
         )
         conn.execute(text(stmt))
 
@@ -442,10 +631,13 @@ class StageMeta(TableBase):
 class TableMeta(TableBase):
     """Metadata for table."""
 
-    def __init__(self, constraints=None, indexes=None, **kwargs):
+    def __init__(self, constraints=None, indexes=None, unpivot=None, **kwargs):
         r"""
         :param constraints: Metadata for table constraints.
         :type constraints: dict
+
+        :param unpivot: Metadata for unpivoting table columns.
+        :type unpivot: list[dict]
 
         :param \**kwargs: TableBase attributes.
         :type \**kwargs: dict
@@ -458,11 +650,20 @@ class TableMeta(TableBase):
         self.primary_key = constraints["primary_key"]
         self.indexes = indexes or []
         self.foreign_keys = []
+        self.unpivot_meta = []
 
         # Instantiate metadata object for all foreign keys
         for fk in constraints.get("foreign_keys", []):
-            fk_meta = ForeignKeyMeta(table=self.name, **fk)
+            fk_meta = ForeignKeyMeta(table=self, **fk)
             self.foreign_keys.append(fk_meta)
+
+        # Unpivot
+        for idx, upv in enumerate(unpivot or []):
+            upv["alias"] = f"upv_{idx}"
+            unpivot_meta = UnpivotMeta(**upv)
+            self.unpivot_meta.append(unpivot_meta)
+            for t_vals in unpivot_meta.target_values:
+                self.columns.extend(t_vals.columns)
 
     @property
     def stage_meta(self):
@@ -493,6 +694,82 @@ class TableMeta(TableBase):
         # Create stage as well
         self.stage_meta.create(conn)
 
+    def unpivot(self, conn):
+        """Unpivot a table.
+
+        :param con: SQLAlchemy connection/session.
+        :type con: sqlalchemy.Engine
+
+        :return: None
+        """
+        if not self.unpivot_meta:
+            return
+
+        drop = []
+        columns = []
+        aliased = []
+        laterals = []
+        for upv in self.unpivot_meta:
+            drop.extend(map(str, upv.columns(unpivot=False)))
+            for column in upv.columns():
+                columns.append(column.name)
+                aliased.append(f"{upv.alias}.{column.name}")
+            laterals.append(upv.lateral())
+
+        # Include columns that are not affected
+        for column in self.columns:
+            # Skip columns that we are dropping
+            if column.name in drop:
+                continue
+            columns.append(column.name)
+            aliased.append(f"upv.{column.name}")
+
+        # Insert unpivoted data
+        stmt = dedent("""
+        WITH to_unpivot AS
+        (
+          DELETE FROM {schema}.{name}
+          RETURNING *
+        )
+        INSERT INTO {schema}.{name} (
+            {columns}
+          , meta_row_id
+        )
+        SELECT
+            {aliased}
+          , upv.meta_row_id
+        FROM to_unpivot AS upv
+        CROSS JOIN {laterals}
+        """).format(
+            schema=self.schema,
+            name=self.name,
+            columns="\n  , ".join(columns),
+            aliased="\n  , ".join(aliased),
+            laterals="".join(laterals)
+        )
+        conn.execute(text(stmt))
+
+        # Drop unpivoted columns
+        stmt = dedent("""
+        ALTER TABLE {schema}.{name}
+            DROP COLUMN {columns}
+        ;
+        """).format(
+            schema=self.schema,
+            name=self.name,
+            columns="\n,  DROP COLUMN ".join(drop)
+        )
+        conn.execute(text(stmt))
+
+        # Enforce primary key
+        self.enforce_pk(conn)
+
+        # Enforce column properties
+        for upv in self.unpivot_meta:
+            for column in upv.columns():
+                column.enforce_type(conn, self.schema, self.name)
+                column.enforce_required(conn, self.schema, self.name)
+
     def enforce_constraints(self, conn):
         """Enforce table constraints.
 
@@ -501,13 +778,6 @@ class TableMeta(TableBase):
 
         :return: None
         """
-        # Get database dialect from connection
-        dialect = conn.bind.dialect.name
-
-        # Enforce foreign keys
-        for fk in self.foreign_keys:
-            fk.create(conn)
-
         # Enforce constraints
         for column in self.columns:
             # Resolve NULL values
@@ -517,17 +787,19 @@ class TableMeta(TableBase):
 
             # Enforce data types
             column.enforce_type(
-                conn, name=self.name, schema=self.schema, dialect=dialect)
+                conn, name=self.name, schema=self.schema)
 
             # Add comment to columns
-            if column.description is not None:
-                column.comment(
-                    conn, schema=self.schema, name=self.name)
+            column.comment(
+                conn, schema=self.schema, name=self.name)
 
             # Enforce required
-            if column.required:
-                column.enforce_required(
-                    conn, schema=self.schema, name=self.name)
+            column.enforce_required(
+                conn, schema=self.schema, name=self.name)
+
+        # Enforce foreign keys
+        for fk in self.foreign_keys:
+            fk.create(conn)
 
     def create_indexes(self, conn):
         """Create table indexes.
@@ -549,6 +821,22 @@ class TableMeta(TableBase):
             )
             conn.execute(text(stmt))
 
+    def enforce_pk(self, conn):
+        """Enforce primary key.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :return: None
+        """
+        stmt = dedent("""
+        ALTER TABLE {schema}.{name} ADD PRIMARY KEY ({pk})
+        """).format(
+            name=self.name, schema=self.schema,
+            pk=', '.join(self.primary_key)
+        )
+        conn.execute(text(stmt))
+
     def load(self, conn):
         """Load data from stage.
 
@@ -564,8 +852,9 @@ class TableMeta(TableBase):
         # Get database dialect from connection
         dialect = conn.bind.dialect.name
 
-        where_reqs = ["0 = 1"]
-        columns, typed = [], []
+        typed = []
+        columns = []
+        where_req = ["0 = 1"]
         for column in self.columns:
             # Append to list of columns to be retrieved
             columns.append(str(column))
@@ -574,19 +863,14 @@ class TableMeta(TableBase):
             # Add required columns to where statement filtering not null values
             if not column.required:
                 continue
-            where_reqs.append(f"{self.name}.{column} IS NULL")
+            where_req.append(f"{self.name}.{column} IS NULL")
 
         # Move rows from staging to final schema
         logging.info("Table '%s'.'%s': Loading.", self.schema, self.name)
 
-        # Enforce primary key
-        stmt = dedent("""
-        ALTER TABLE {schema}.{name} ADD PRIMARY KEY ({pk})
-        """).format(
-            name=self.name, schema=self.schema,
-            pk=', '.join(self.primary_key)
-        )
-        conn.execute(text(stmt))
+        # Skipped if we are pivoting the table later
+        if not self.unpivot_meta:
+            self.enforce_pk(conn)
 
         # Flag rows missing required columns
         stmt = dedent("""
@@ -595,11 +879,11 @@ class TableMeta(TableBase):
         WHERE 1 = 1
         AND meta_log IS NULL
         AND (
-            {where_reqs}
+             {where_reqs}
         )
         """).format(
             name=self.name, schema=self.schema,
-            where_reqs="\n  OR ".join(where_reqs)
+            where_reqs="\n  OR ".join(where_req)
         )
         conn.execute(text(stmt))
 
@@ -676,6 +960,42 @@ class TableMeta(TableBase):
                 "Table '%s'.'%s': %d rows remain staged.",
                 self.schema, self.name, count
             )
+
+        # Unpivot
+        self.unpivot(conn)
+
+    @classmethod
+    def order_columns(cls, columns, order):
+        """Sort table columns in the order presented
+        in a CSV file to be used in a COPY statement.
+
+        :param columns: Columns to be ordered.
+        :type columns: list[ColumnMeta]
+
+        :param order: Column names in the order they are to be returned.
+        :type order: list[str]
+
+        :return: Ordered list of columns.
+        :rtype: list[ColumnMeta]
+        """
+        order = order or [col.name for col in columns]
+        unique = set(columns)
+
+        # Remove new line and quotes from header
+        for i, header in enumerate(order):
+            header = re.sub(r'(\\n|\")', "", header)
+            order[i] = header
+
+        # Remove newline character from last field
+        if "\n" in order[-1]:
+            order[-1] = order[-1][:-1]
+
+        # Subset to columns present in csv
+        filtered = filter(lambda x: x.name in order, unique)
+
+        # Order columns according to csv
+        ordered = sorted(filtered, key=lambda c: order.index(c.name))
+        return list(ordered)
 
 
 def load_env(directory):
