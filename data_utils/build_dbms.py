@@ -133,7 +133,7 @@ def generate_filter(columns, reference, alias=None, cohort=False):
 
     # Generate IN expressions
     return dedent("""
-    OR EXISTS (
+    EXISTS (
       SELECT 1
       FROM tmp_{table}_{uuid} {alias}
       WHERE 1 = 1
@@ -180,12 +180,12 @@ def generate_table_data(conn, data, schema, table, filters, export=True):
     SELECT src.*
     FROM {schema}.{table} src
     WHERE 0 = 1
-    {filters}
+    OR {filters}
     """).format(
         schema=schema,
         table=table,
         uuid=UUID,
-        filters="".join(
+        filters="OR ".join(
             generate_filter(alias=f"f_{idx}", **filter)[1:]
             for idx, filter in enumerate(filters)
         )
