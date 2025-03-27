@@ -133,7 +133,7 @@ def generate_filter(columns, reference, alias=None, cohort=False):
 
     # Generate IN expressions
     return dedent("""
-    AND EXISTS (
+    OR EXISTS (
       SELECT 1
       FROM tmp_{table}_{uuid} {alias}
       WHERE 1 = 1
@@ -179,7 +179,7 @@ def generate_table_data(conn, data, schema, table, filters, export=True):
     CREATE TABLE tmp_{table}_{uuid} AS
     SELECT src.*
     FROM {schema}.{table} src
-    WHERE 1 = 1
+    WHERE 0 = 1
     {filters}
     """).format(
         schema=schema,
