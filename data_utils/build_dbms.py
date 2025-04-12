@@ -113,7 +113,7 @@ def generate_table_meta(meta_dir, table, dialect=None):
         json.dump(meta, file, indent=4)
 
 
-def generate_filter(columns, reference, alias=None, cohort=False):
+def generate_filter(columns, reference, cohort=False):
     """Generate table metadata from DBMS.
 
     :param columns: Columns used to filter.
@@ -121,9 +121,6 @@ def generate_filter(columns, reference, alias=None, cohort=False):
 
     :param reference: Columns used to filter in the reference table.
     :type reference: dict
-
-    :param alias: Alias to use for the filtering table.
-    :type alias: str
 
     :return: .
     :rtype: str
@@ -133,21 +130,18 @@ def generate_filter(columns, reference, alias=None, cohort=False):
 
     # Generate IN expressions
     return dedent("""
-    EXISTS (
-      SELECT 1
-      FROM tmp_{table}_{uuid} {alias}
-      WHERE 1 = 1
-      AND {columns}
-    )
+    SELECT 1
+    FROM tmp_{table}_{uuid} ref
+    WHERE 1 = 1
+    AND {columns}
     """).format(
         table=table,
-        alias=alias,
         uuid=UUID,
-        columns="\n  AND ".join(
-            f"src.{column} = {alias}.{reference}"
+        columns="\nAND ".join(
+            f"src.{column} = ref.{reference}"
             for column, reference in zip(columns, reference["columns"])
         )
-    )
+    ).split("\n")
 
 
 def generate_table_data(conn, data, schema, table, filters, export=True):
@@ -179,15 +173,17 @@ def generate_table_data(conn, data, schema, table, filters, export=True):
     CREATE TABLE tmp_{table}_{uuid} AS
     SELECT src.*
     FROM {schema}.{table} src
-    WHERE 0 = 1
-    OR {filters}
+    WHERE 1 = 1
+    AND EXISTS (
+      {filters}
+    )
     """).format(
         schema=schema,
         table=table,
         uuid=UUID,
-        filters="OR ".join(
-            generate_filter(alias=f"f_{idx}", **filter)[1:]
-            for idx, filter in enumerate(filters)
+        filters="\n  UNION ALL\n".join(
+            "\n  ".join(generate_filter(**filter))
+            for filter in filters
         )
     )
     conn.execute(text(sql))
