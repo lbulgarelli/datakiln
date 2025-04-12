@@ -974,6 +974,8 @@ class TableMeta(TableBase):
 
         :return: None
         """
+        logging.info("Table '%s'.'%s': Enforcing constraints.", self.schema,
+                     self.name)
         # Enforce constraints
         for column in self.columns:
             # Resolve NULL values
