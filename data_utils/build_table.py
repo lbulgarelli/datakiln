@@ -7,7 +7,6 @@ import csv
 import gzip
 import json
 import logging
-import os
 from pathlib import Path
 from getpass import getuser
 from textwrap import dedent
@@ -460,7 +459,7 @@ class ForeignKeyMeta():
         return conditions
 
 
-class LFSLocation():
+class LFSLocation(ColumnMeta):
     """Column with local file locations."""
 
     def __init__(self, table, name, folder, regex, match,
@@ -482,9 +481,6 @@ class LFSLocation():
         :param match: Column to perform match against in table.
         :type match: str
 
-        :param replace: Characters to replace in the file names.
-        :type replace: dict
-
         :param required: If True, column can't be NULL.
         :type required: bool
 
@@ -505,15 +501,23 @@ class LFSLocation():
         self.stg_name = f"{self.table.name}_local_fs"
 
     def _match(self, string):
-        """Find matching pattern on string."""
+        """Find matching pattern on string and normalize to default values."""
         match = re.search(self.regex, string)
-        if not match:
-            return []
+        if match:
+            extracted = []
+            groups = match.groups()
 
-        # Extract all matched groups into a list
-        result = [group for group in match.groups() if group is not None]
+            # Iterates over each match to apply default values
+            for i in range(len(self.match)):
+                if groups[i] is not None:
+                    extracted.append(groups[i])
+                else:
+                    extracted.append(self.default_values[i])
 
-        return result
+            # Return True if match was found
+            return extracted, True
+
+        return [''] * len(self.match), False
 
     def find(self, conn):
         """Find file names in directory and store them in a staging table.
@@ -524,129 +528,89 @@ class LFSLocation():
         :return: None
         """
 
-        logging.info(
-                "Table '%s'.'%s': Searching local file system for matches.",
-                self.table.schema, self.table.name
-            )
+        logging.info("Table '%s'.'%s': Searching local file system.",
+                     self.table.schema, self.table.name)
 
         # Extract matches and file paths
         file_data = []
-        file_unmatched = []
 
-        # Walk through all subdirectories (including the root folder)
-        for root, _, files in os.walk(self.folder):
-            for file in files:
-                full_path = os.path.join(root, file)
-                if os.path.isfile(full_path):  # Ensure it's a file
-                    matches = self._match(file)
-                    # Append files with at least one match to file_data
-                    if matches and len(matches) > 0:
-                        file_data.append((matches, full_path))
-                    # Append unmatched files
-                    else:
-                        file_unmatched.append(full_path)
+        # Convert to Path object
+        folder_path = Path(self.folder)
 
-        # Find the max number of match groups across all files
-        max_groups = max((len(m) for m, _ in file_data), default=1)
+        # Count number of matches
+        n_matches = 0
 
-        # Use `self.match` as column names (ensuring enough names exist)
-        match_columns = self.match[:max_groups]  # Take only needed names
-        match_columns += [f"match_{i+1}" for i in range(
-            len(match_columns), max_groups)]  # Fallback names
-
-        # Log a warning if some matches are missing
-        if max_groups > len(self.match):
-            logging.warning(
-                "Table '%s'.'%s': %d expected matches not found."
-                "Using default name `match_i` for columns with extra matches.",
-                self.table.schema, self.table.name, max_groups - len(
-                    self.match)
-            )
+        # Iterate through all files in folder and subfolders
+        for file_path in folder_path.glob('**/*'):
+            if file_path.is_file():
+                matches, matched = self._match(file_path.name)
+                file_data.append((matches, str(file_path)))
+                n_matches += int(matched)
 
         # Final list of formatted SQL rows
         formatted_rows = []
 
         # Loop over each file's match results and its path
         for match_list, file_path in file_data:
-            # Pad the match list with empty strings
-            padded_match_list = match_list + [''] * (
-                max_groups - len(match_list))
-
-            # Zip the padded match list with default values to fill missing
-            normalized_matches = [
-                match if match else default
-                for match, default in zip(
-                    padded_match_list, self.default_values)
-            ]
 
             # Apply transformation mappings from self.match_map
             transformed_matches = []
-            for i, value in enumerate(normalized_matches):
-                if i < len(self.match_map) and isinstance(
-                        self.match_map[i], dict):
-                    transformed_value = self.match_map[i].get(value, value)
-                else:
-                    transformed_value = value
+            for i, value in enumerate(match_list):
+                transformed_value = self.match_map[i].get(value, value)
                 transformed_matches.append(transformed_value)
 
             # Format the row as an SQL-compatible string
-            row_string = (
-                f"({', '.join(map(repr, transformed_matches))}, "
-                f"{repr(file_path)})"
+            row_string = "({values}, {file})".format(
+                values=", ".join(repr(val) for val in transformed_matches),
+                file=repr(file_path)
             )
             formatted_rows.append(row_string)
 
-        # Warn if no matches were found for the regex
-        if not formatted_rows:
-            dummy_values = ["''"]*len(match_columns) + ["''"]
-            formatted_rows = [f"({', '.join(dummy_values)})"]
-            logging.warning(
-                "Table '%s'.'%s': No matched local files were found.",
-                self.table.schema, self.table.name
-            )
-        else:
-            logging.warning(
-                "Table '%s'.'%s': Found %d local files matches.",
-                self.table.schema, self.table.name, len(formatted_rows)
-            )
+        # Log how many local matches were found
+        logging.log(logging.INFO if formatted_rows else logging.WARNING,
+                    "Table '%s'.'%s': Found %d local files matches.",
+                    self.table.schema, self.table.name, n_matches)
 
-        # Files without matches
-        for file_path in file_unmatched:
-            # Ensure there are `max_groups` placeholders for missing matches
-            empty_values = [''] * max_groups
-            # Append the file path as the last value
-            row_string = (
-                f"({', '.join(map(repr, empty_values))}, "
-                f"{repr(file_path)})"
-            )
-            formatted_rows.append(row_string)
+        # Create table on Stage
+        self.create_table(conn, formatted_rows)
 
+        # Join tables based on matched columns only
+        self.join_file_locations(conn, self.match)
+
+    def create_table(self, conn, rows):
+        """Create LFS Location table.
+
+        :param conn: SQLAlchemy connection/session.
+        :type conn: sqlalchemy.Engine
+
+        :param rows: List of formatted rows to be inserted as values.
+        :type rows: list
+
+        :return: None
+        """
         # Table stage name
         stg_name = f"stg_{self.table.schema}.{self.stg_name}"
 
-        # Drop table if it already exists
+        # Drop table statement
         conn.execute(text(f"DROP TABLE IF EXISTS {stg_name}"))
 
-        # Generate SQL statement
+        # Create statement
         stmt = dedent("""
         CREATE TABLE {stg_name} AS
-            SELECT
-                {columns}
-                , ARRAY_AGG({name}) AS {name}
-            FROM ( VALUES
-                {values}
-            ) t ({columns}, {name})
-            GROUP BY {columns}
+        SELECT
+            {columns}
+          , ARRAY_AGG({name}) AS {name}
+        FROM ( VALUES
+              {values}
+             ) t ({columns}, {name})
+        GROUP BY {columns}
         """).format(
             stg_name=stg_name,
-            columns=", ".join(match_columns),
-            values=',\n    '.join(formatted_rows),
+            columns="\n  , ".join(self.match),
+            values=',\n      '.join(rows),
             name=self.name
         )
         conn.execute(text(stmt))
-
-        # Join tables based on matched columns only
-        self.join(conn, match_columns)
 
     def add_column(self, conn):
         """Add local location column to table.
@@ -657,18 +621,18 @@ class LFSLocation():
         :return: None
         """
         stmt = dedent("""
-        ALTER TABLE {schema}.{table_name}
-            ADD COLUMN {name} TEXT[]
+        ALTER TABLE {schema}.{name}
+            ADD COLUMN {column} TEXT[]
             {notnull}
         """).format(
             schema=self.table.schema,
-            table_name=self.table.name,
-            name=self.name,
+            name=self.table.name,
+            column=self.name,
             notnull='NOT NULL' if self.required else ''
         )
         conn.execute(text(stmt))
 
-    def join(self, conn, match_columns):
+    def join_file_locations(self, conn, match_columns):
         """Add staged local file system column to loaded table.
 
         :return: str
@@ -689,16 +653,6 @@ class LFSLocation():
             )
         )
         conn.execute(text(stmt))
-
-    def sql(self, with_table=False):
-        """SQL column name.
-
-        :param with_table: Include the table name.
-        :type with_table: bool
-
-        :return: None
-        """
-        return f"{self.stg_name}.{self.name}" if with_table else self.name
 
 
 class TableBase():
@@ -894,8 +848,10 @@ class TableMeta(TableBase):
         self.indexes = indexes or []
         self.foreign_keys = []
         self.unpivot_meta = []
-        self.lfs_location = LFSLocation(self, **lfs_location)\
+        self.lfs_location = (
+            LFSLocation(self, **lfs_location)
             if lfs_location else None
+        )
 
         # Instantiate metadata object for all foreign keys
         for fk in constraints.get("foreign_keys", []):
