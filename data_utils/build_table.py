@@ -460,10 +460,12 @@ class ForeignKeyMeta():
 
 
 class LFSLocation(ColumnMeta):
+    # pylint: disable=too-many-instance-attributes
     """Column with local file locations."""
 
     def __init__(self, table, name, folder, regex, match,
                  default_values=None, match_map=None, required=False):
+        # pylint: disable=too-many-arguments, too-many-positional-arguments
         """
         :param table: Table metadata.
         :type table: postgres_utils.build_table.TableMeta
@@ -499,6 +501,8 @@ class LFSLocation(ColumnMeta):
         self.default_values = default_values
         self.match_map = match_map
         self.stg_name = f"{self.table.name}_local_fs"
+
+        super().__init__(name=self.name, dtype={"postgresql": "TEXT[]"})
 
     def _match(self, string):
         """Find matching pattern on string and normalize to default values."""
@@ -560,7 +564,8 @@ class LFSLocation(ColumnMeta):
                 transformed_matches.append(transformed_value)
 
             # Format the row as an SQL-compatible string
-            row_string = "({values}, {file})".format(
+            # pylint: disable=consider-using-f-string
+            row_string = """({values}, {file})""".format(
                 values=", ".join(repr(val) for val in transformed_matches),
                 file=repr(file_path)
             )
