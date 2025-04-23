@@ -463,16 +463,11 @@ class LFSLocation(ColumnMeta):
     # pylint: disable=too-many-instance-attributes
     """Column with local file locations."""
 
-    def __init__(self, table, name, folder, regex, match,
-                 default_values=None, match_map=None, required=False):
+    def __init__(self, folder, regex, match,
+                 default_values=None, match_map=None,
+                 **kwargs):
         # pylint: disable=too-many-arguments, too-many-positional-arguments
         """
-        :param table: Table metadata.
-        :type table: postgres_utils.build_table.TableMeta
-
-        :param name: Local Filesystem location column name.
-        :type name: str
-
         :param folder: Directory path to search for files.
         :type folder: str
 
@@ -483,26 +478,20 @@ class LFSLocation(ColumnMeta):
         :param match: Column to perform match against in table.
         :type match: str
 
-        :param required: If True, column can't be NULL.
-        :type required: bool
-
         :param default_values: Default values for each match.
         :type replace: list
 
         :param match_map: Replace values for each match using a dict.
         :type replace: list
         """
-        self.table = table
-        self.name = name
         self.folder = folder
         self.regex = regex
         self.match = match
-        self.required = required
         self.default_values = default_values
         self.match_map = match_map
-        self.stg_name = f"{self.table.name}_local_fs"
+        self.folder_path = Path(self.folder)
 
-        super().__init__(name=self.name, dtype={"postgresql": "TEXT[]"})
+        super().__init__(**kwargs, dtype={"postgresql": "TEXT[]"})
 
     def _match(self, string):
         """Find matching pattern on string and normalize to default values."""
@@ -519,70 +508,65 @@ class LFSLocation(ColumnMeta):
                     extracted.append(self.default_values[i])
 
             # Return True if match was found
-            return extracted, True
+            return extracted
 
-        return [''] * len(self.match), False
+        return [''] * len(self.match)
 
-    def find(self, conn):
+    def find(self, conn, table):
         """Find file names in directory and store them in a staging table.
 
         :param con: SQLAlchemy connection/session.
         :type con: sqlalchemy.Engine
 
+        :param table: Table metadata
+        :type table: TableMeta
+
         :return: None
         """
 
         logging.info("Table '%s'.'%s': Searching local file system.",
-                     self.table.schema, self.table.name)
+                     table.schema, table.name)
 
-        # Extract matches and file paths
-        file_data = []
-
-        # Convert to Path object
-        folder_path = Path(self.folder)
-
-        # Count number of matches
+        # List to append new rows and counter for number of matches
+        formatted_rows = []
         n_matches = 0
 
         # Iterate through all files in folder and subfolders
-        for file_path in folder_path.glob('**/*'):
-            if file_path.is_file():
-                matches, matched = self._match(file_path.name)
-                file_data.append((matches, str(file_path)))
-                n_matches += int(matched)
+        for file_path in self.folder_path.glob('**/*'):
+            if not file_path.is_file():
+                continue
 
-        # Final list of formatted SQL rows
-        formatted_rows = []
+            matches = self._match(file_path.name)
 
-        # Loop over each file's match results and its path
-        for match_list, file_path in file_data:
+            # Count matches if there’s any non-empty text in any of the groups
+            if "".join(matches).strip():
+                n_matches += 1
 
             # Apply transformation mappings from self.match_map
             transformed_matches = []
-            for i, value in enumerate(match_list):
+            for i, value in enumerate(matches):
                 transformed_value = self.match_map[i].get(value, value)
                 transformed_matches.append(transformed_value)
 
             # Format the row as an SQL-compatible string
-            # pylint: disable=consider-using-f-string
-            row_string = """({values}, {file})""".format(
+            row_string = "({values}, {file})".format(  # pylint: disable=consider-using-f-string
                 values=", ".join(repr(val) for val in transformed_matches),
-                file=repr(file_path)
+                file=repr(str(file_path))
             )
             formatted_rows.append(row_string)
 
         # Log how many local matches were found
         logging.log(logging.INFO if formatted_rows else logging.WARNING,
                     "Table '%s'.'%s': Found %d local files matches.",
-                    self.table.schema, self.table.name, n_matches)
+                    table.schema, table.name, n_matches)
 
         # Create table on Stage
-        self.create_table(conn, formatted_rows)
+        self.create_table(conn, formatted_rows, table)
 
         # Join tables based on matched columns only
-        self.join_file_locations(conn, self.match)
+        self.insert_file_locations(conn, self.match, table)
 
-    def create_table(self, conn, rows):
+    def create_table(self, conn, rows, table):
         """Create LFS Location table.
 
         :param conn: SQLAlchemy connection/session.
@@ -591,10 +575,13 @@ class LFSLocation(ColumnMeta):
         :param rows: List of formatted rows to be inserted as values.
         :type rows: list
 
+        :param table: Table metadata
+        :type table: TableMeta
+
         :return: None
         """
         # Table stage name
-        stg_name = f"stg_{self.table.schema}.{self.stg_name}"
+        stg_name = f"stg_{table.schema}.{table.name}_local_fs"
 
         # Drop table statement
         conn.execute(text(f"DROP TABLE IF EXISTS {stg_name}"))
@@ -617,11 +604,14 @@ class LFSLocation(ColumnMeta):
         )
         conn.execute(text(stmt))
 
-    def add_column(self, conn):
+    def add_column(self, conn, table):
         """Add local location column to table.
 
         :param conn: SQLAlchemy connection/session.
         :type conn: sqlalchemy.Engine
+
+        :param table: Table metadata
+        :type table: TableMeta
 
         :return: None
         """
@@ -630,14 +620,14 @@ class LFSLocation(ColumnMeta):
             ADD COLUMN {column} TEXT[]
             {notnull}
         """).format(
-            schema=self.table.schema,
-            name=self.table.name,
+            schema=table.schema,
+            name=table.name,
             column=self.name,
             notnull='NOT NULL' if self.required else ''
         )
         conn.execute(text(stmt))
 
-    def join_file_locations(self, conn, match_columns):
+    def insert_file_locations(self, conn, match_columns, table):
         """Add staged local file system column to loaded table.
 
         :return: str
@@ -648,10 +638,10 @@ class LFSLocation(ColumnMeta):
         FROM stg_{schema}.{stg_name} fst
         WHERE {cols_match}
         """).format(
-            schema=self.table.schema,
-            table_name=self.table.name,
+            schema=table.schema,
+            table_name=table.name,
             name=self.name,
-            stg_name=self.stg_name,
+            stg_name=f'{table.name}_local_fs',
             cols_match=" AND ".join(
                 f"ot.{col} = fst.{col}"
                 for col in match_columns
@@ -854,7 +844,7 @@ class TableMeta(TableBase):
         self.foreign_keys = []
         self.unpivot_meta = []
         self.lfs_location = (
-            LFSLocation(self, **lfs_location)
+            LFSLocation(**lfs_location)
             if lfs_location else None
         )
 
@@ -1173,9 +1163,9 @@ class TableMeta(TableBase):
         # Local File System location
         if self.lfs_location:
             # Add file location column to table
-            self.lfs_location.add_column(conn)
+            self.lfs_location.add_column(conn, table=self)
             # Find all files in specified bucket/folder and join them to table
-            self.lfs_location.find(conn)
+            self.lfs_location.find(conn, table=self)
 
     @classmethod
     def order_columns(cls, columns, order):
