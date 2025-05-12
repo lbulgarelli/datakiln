@@ -6,12 +6,12 @@ stages:
   - push
 
 include:
-  - component: $CI_SERVER_FQDN/example/python-ci/base@0.1.0
-  - component: $CI_SERVER_FQDN/example/python-ci/build@0.1.0
-  - component: $CI_SERVER_FQDN/example/python-ci/lint@0.1.0
-  - component: $CI_SERVER_FQDN/example/python-ci/test@0.1.0
-  - component: $CI_SERVER_FQDN/example/python-ci/document@0.1.0
-  - component: $CI_SERVER_FQDN/example/python-ci/push@0.1.0
+  - component: $CI_SERVER_FQDN/example/python-ci/base@0.1.2
+  - component: $CI_SERVER_FQDN/example/python-ci/build@0.1.2
+  - component: $CI_SERVER_FQDN/example/python-ci/lint@0.1.2
+  - component: $CI_SERVER_FQDN/example/python-ci/test@0.1.2
+  - component: $CI_SERVER_FQDN/example/python-ci/document@0.1.2
+  - component: $CI_SERVER_FQDN/example/python-ci/push@0.1.2
 
 .unit_tests:
   variables:
