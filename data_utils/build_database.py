@@ -25,8 +25,9 @@ def execute_directory(directory, conn):
     :param conn: SQLAlchemy connection or session.
     :type conn: sqlalchemy.Engine
     """
-    for file_name in sorted(directory.glob("*.sql")):
-        logging.info("Script '%s/%s': RUNNING", directory.stem, file_name.stem)
+    for file_name in sorted(directory.glob("**/*.sql")):
+        logging.info("Script '%s': RUNNING",
+                     file_name.relative_to(directory.parent))
 
         # Load file
         with open(file_name, "r", encoding="utf-8") as file:
