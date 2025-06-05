@@ -16,7 +16,7 @@ logging.basicConfig(
     format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s")
 
 
-def execute_directory(directory, conn):
+def execute_directory(directory, conn, ignore):
     """Executes SQL scripts in a given directory.
 
     :param directory: Path for metadata directory.
@@ -24,8 +24,14 @@ def execute_directory(directory, conn):
 
     :param conn: SQLAlchemy connection or session.
     :type conn: sqlalchemy.Engine
+
+    :param ignore: List of files to ignore.
+    :type ignore: str
     """
     for file_name in sorted(directory.glob("**/*.sql")):
+        file_relative = file_name.relative_to(directory)
+        if str(file_relative) in ignore:
+            continue
         logging.info("Script '%s': RUNNING",
                      file_name.relative_to(directory.parent))
 
@@ -96,15 +102,25 @@ def main(args=None):
     db_params = load_env(directory)
     conn = connect(**db_params)
 
+    # Retrieve files to ignore
+    ignore = []
+    if (ignore_file := directory / ".dataignore").exists():
+        with ignore_file.open("r", encoding="utf-8", errors="ignore") as file:
+            ignore = file.readlines()
+
     # Iterate through all table metadata
     tables_meta = []
     for meta_path in sorted((directory / "metadata").glob("*.json")):
+        meta_relative = meta_path.relative_to(directory)
+        if str(meta_relative) in ignore:
+            continue
+
         # Stage and flush to database
         tables_meta.append(stage(meta_path, conn))
         conn.flush()
 
     # Run transforms
-    execute_directory(directory / "transform", conn)
+    execute_directory(directory / "transform", conn, ignore)
 
     # Load to final schema and flush to database
     for table_meta in tables_meta:
@@ -113,7 +129,7 @@ def main(args=None):
         table_meta.create_indexes(conn)
 
     # Run views
-    execute_directory(directory / "derive", conn)
+    execute_directory(directory / "derive", conn, ignore)
 
     # Grant read permissions on entire database
     grant(conn, db_params["database"], args.grant)
