@@ -288,10 +288,15 @@ def main(args=None):
         # Create dict entry for schema
         if (schema := extract_meta["schema"]) not in data:
             data[schema] = {}
+        table = f"{schema}.{extract_meta['table']}"
+
+        # We only export the specified tables
+        if args.include is None:
+            export = True
+        else:
+            export = table in args.include
 
         # Retrieve data
-        table = f"{extract_meta['schema']}.{extract_meta['table']}"
-        export = table in args.include
         generate_table_data(conn, data, **extract_meta, export=export)
 
         # Skip export if empty
