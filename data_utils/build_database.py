@@ -29,7 +29,7 @@ def execute_directory(directory, conn, ignore):
     :type ignore: str
     """
     for file_name in sorted(directory.glob("**/*.sql")):
-        file_relative = file_name.relative_to(directory)
+        file_relative = file_name.relative_to(directory.parent)
         if str(file_relative) in ignore:
             continue
         logging.info("Script '%s': RUNNING",
