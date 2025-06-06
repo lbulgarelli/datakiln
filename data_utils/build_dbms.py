@@ -433,7 +433,7 @@ def main(args=None):
             conn.execute(text(f"DROP TABLE tmp_{table}_{UUID}"))
 
             # We remove tables from dict if they are not included
-            if f"{schema}.{table}" not in args.include:
+            if not tables[table]:
                 tables.pop(table)
 
     # Drop cohort table
