@@ -384,10 +384,10 @@ def main(args=None):
 
     # Retrieve cohort information
     for extract_meta in included:
-        for filter in extract_meta["filters"]:
-            if "cohort" not in filter:
+        for filter_ in extract_meta["filters"]:
+            if "cohort" not in filter_:
                 continue
-            retrieve_cohort(conn, directory, filter["cohort"])
+            retrieve_cohort(conn, directory, filter_["cohort"])
             break
         else:
             break
