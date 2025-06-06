@@ -1319,6 +1319,10 @@ def stage(meta_path, conn):
     else:
         files = data_dir.glob(f"{meta_name}.*")
 
+    # Generate error if not files are found
+    if not any(files):
+        raise FileNotFoundError(f"No files found for metadata: '{meta_name}'")
+
     # Determine file type(s)
     for file in files:
         suffix = "".join(file.suffixes)
