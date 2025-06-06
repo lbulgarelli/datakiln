@@ -162,7 +162,56 @@ def retrieve_cohort(conn, directory, cohort):
         )))
 
 
-def generate_filter(columns, reference, cohort=None):
+def alias_column(column, default):
+    """Impute table alias for column reference.
+
+    :param column: Current column reference.
+    :type column: str
+
+    :param default: Default alias to impute.
+    :type default: str
+
+    :return: Column reference.
+    :rtype: str
+    """
+    if "." in column:
+        return column
+    return f"{default}.{column}"
+
+
+def generate_join(columns, reference):
+    """Generate table metadata from DBMS.
+
+    :param columns: Columns used to filter.
+    :type columns: list[str]
+
+    :param reference: Columns used to filter in the reference table.
+    :type reference: dict
+
+    :return: JOIN expression for filter query.
+    :rtype: str
+    """
+    # Generate EXISTS subqueries
+    return dedent("""
+    JOIN {schema}.{table} {alias}
+      ON {columns}
+    """).format(
+        schema=reference["schema"],
+        table=reference["table"],
+        alias=reference["alias"],
+        columns="\nAND ".join(
+            f"{alias_column(col, 'ref')} {op} {alias}.{ref}"
+            for col, op, alias, ref in zip(
+                columns,
+                reference.get("operators", repeat("=")),
+                repeat(reference.get("alias", "ref")),
+                reference["columns"]
+            )
+        )
+    )[1:]
+
+
+def generate_filter(columns, reference, cohort=None, join=None):
     """Generate table metadata from DBMS.
 
     :param columns: Columns used to filter.
@@ -180,18 +229,24 @@ def generate_filter(columns, reference, cohort=None):
     # Handle table name and cohort filter
     table = "cohort" if cohort else reference["table"]
 
-    # Generate IN expressions
+    # Generate join
+
+    # Generate EXISTS subqueries
     return dedent("""
     SELECT 1
     FROM tmp_{table}_{uuid} ref
-    WHERE 1 = 1
+    {join} WHERE 1 = 1
     AND {columns}
     """).format(
         table=table,
         uuid=UUID,
+        join="  ".join(
+            generate_join(**join_meta)
+            for join_meta in join or []
+        ),
         columns="\nAND ".join(
-            f"src.{column} {operator} ref.{reference}"
-            for column, operator, reference in zip(
+            f"{alias_column(col, 'src')} {op} {alias_column(ref, 'ref')}"
+            for col, op, ref in zip(
                 columns,
                 reference.get("operators", repeat("=")),
                 reference["columns"]
