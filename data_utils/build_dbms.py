@@ -7,6 +7,7 @@ import logging
 from uuid import uuid4
 from pathlib import Path
 from textwrap import dedent
+from itertools import repeat
 from getpass import getpass, getuser
 
 import pandas as pd
@@ -202,8 +203,12 @@ def generate_filter(conn, directory, columns, reference, cohort=None):
         table=table,
         uuid=UUID,
         columns="\nAND ".join(
-            f"src.{column} = ref.{reference}"
-            for column, reference in zip(columns, reference["columns"])
+            f"src.{column} {operator} ref.{reference}"
+            for column, operator, reference in zip(
+                columns,
+                reference.get("operators", repeat("=")),
+                reference["columns"]
+            )
         )
     ).split("\n")
 
