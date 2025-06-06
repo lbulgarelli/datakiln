@@ -123,9 +123,6 @@ def retrieve_cohort(conn, directory, cohort):
     :param directory: Path for metadata directory.
     :type directory: str
 
-    :param reference: Columns used to filter in the reference table.
-    :type reference: dict
-
     :param cohort: Name of cohort table or name of cohort file.
     :type cohort: str
     """
@@ -165,14 +162,8 @@ def retrieve_cohort(conn, directory, cohort):
         )))
 
 
-def generate_filter(conn, directory, columns, reference, cohort=None):
+def generate_filter(columns, reference, cohort=None):
     """Generate table metadata from DBMS.
-
-    :param conn: SQLAlchemy connection or session.
-    :type conn: sqlalchemy.Engine
-
-    :param directory: Path for metadata directory.
-    :type directory: str
 
     :param columns: Columns used to filter.
     :type columns: list[str]
@@ -187,11 +178,7 @@ def generate_filter(conn, directory, columns, reference, cohort=None):
     :rtype: str
     """
     # Handle table name and cohort filter
-    if cohort:
-        table = "cohort"
-        retrieve_cohort(conn, directory, cohort)
-    else:
-        table = reference["table"]
+    table = "cohort" if cohort else reference["table"]
 
     # Generate IN expressions
     return dedent("""
@@ -213,16 +200,12 @@ def generate_filter(conn, directory, columns, reference, cohort=None):
     ).split("\n")
 
 
-def generate_table_data(conn, directory, data, schema, table, filters,
-                        export=True):
+def generate_table_data(conn, data, schema, table, filters, export=True):
     # pylint: disable=too-many-arguments, too-many-positional-arguments
     """Generate table metadata from DBMS.
 
     :param conn: SQLAlchemy connection or session.
     :type conn: sqlalchemy.Engine
-
-    :param directory: Path for metadata directory.
-    :type directory: str
 
     :param data: Data of retrieved tables.
     :type data: pandas.DataFrame
@@ -254,8 +237,8 @@ def generate_table_data(conn, directory, data, schema, table, filters,
         schema=schema,
         table=table,
         uuid=UUID,
-        filters="\n  UNION ALL\n".join(
-            "\n  ".join(generate_filter(conn, directory, **filter))
+        filters="\n  UNION ALL\n".join("\n  ".join(
+            generate_filter(**filter))
             for filter in filters
         )
     )
@@ -344,6 +327,16 @@ def main(args=None):
                 reference = table_filter["reference"]
                 dependencies.add(f"{reference['schema']}.{reference['table']}")
 
+    # Retrieve cohort information
+    for extract_meta in included:
+        for filter in extract_meta["filters"]:
+            if "cohort" not in filter:
+                continue
+            retrieve_cohort(conn, directory, filter["cohort"])
+            break
+        else:
+            break
+
     # Retrieve information
     data = {}
     for extract_meta in included:
@@ -359,8 +352,7 @@ def main(args=None):
             export = table in args.include
 
         # Retrieve data
-        generate_table_data(conn, directory, data, **extract_meta,
-                            export=export)
+        generate_table_data(conn, data, **extract_meta, export=export)
 
         # Skip export if empty
         table = extract_meta["table"]
