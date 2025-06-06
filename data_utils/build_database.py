@@ -6,6 +6,7 @@ from pathlib import Path
 from textwrap import dedent
 
 from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 
 from data_utils.build_metadata import get_parser
 from data_utils.build_table import load_env, connect, stage
@@ -87,6 +88,26 @@ def grant(conn, role, users=None):
         ))
 
 
+def create_role(conn, database):
+    """Connect to database using SQLAlchemy.
+
+    :param conn: SQLAlchemy connection or session.
+    :type conn: sqlalchemy.Engine
+
+    :param database: Name of the database.
+    :type database: str
+    """
+    try:
+        conn.execute(text(dedent("""
+        CREATE ROLE {database}
+        """).format(database=database)))
+    except ProgrammingError as error:
+        message = f'role "{database}" already exists'
+        if message in error._message():  # pylint: disable=protected-access
+            return
+        raise error
+
+
 def main(args=None):
     """Creates table and loads data."""
     # Get arguments
@@ -101,6 +122,10 @@ def main(args=None):
     # Connect to database
     db_params = load_env(directory)
     conn = connect(**db_params)
+
+    # Create role for database read access
+    create_role(conn, db_params["database"])
+    conn.commit()
 
     # Retrieve files to ignore
     ignore = []

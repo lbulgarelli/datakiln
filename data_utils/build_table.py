@@ -17,7 +17,6 @@ from collections import defaultdict
 
 from sqlalchemy.orm.session import Session
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import ProgrammingError
 from decouple import Config, RepositoryEnv, config
 from pandas._libs.parsers import STR_NA_VALUES  # pylint: disable=no-name-in-module # noqa: E501
 from sqlalchemy_utils import create_database, database_exists
@@ -1231,26 +1230,6 @@ def load_env(directory):
     return db_params
 
 
-def create_role(conn, database):
-    """Connect to database using SQLAlchemy.
-
-    :param conn: SQLAlchemy connection or session.
-    :type conn: sqlalchemy.Engine
-
-    :param database: Name of the database.
-    :type database: str
-    """
-    try:
-        conn.execute(text(dedent("""
-        CREATE ROLE {database}
-        """).format(database=database)))
-    except ProgrammingError as error:
-        message = f'role "{database}" already exists'
-        if message in error._message():  # pylint: disable=protected-access
-            return
-        raise error
-
-
 def connect(user, host, port, database, dialect):
     """Connect to database using SQLAlchemy.
 
@@ -1281,10 +1260,6 @@ def connect(user, host, port, database, dialect):
 
     # Connect
     conn = Session(bind=engine.connect())
-
-    # Create role for database read access
-    create_role(conn, database)
-    conn.commit()
 
     return conn
 
