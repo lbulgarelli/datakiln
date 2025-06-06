@@ -11,10 +11,10 @@ from getpass import getpass, getuser
 
 import pandas as pd
 from sqlalchemy import MetaData, URL
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.dialects import registry
 
-from data_utils.build_table import load_env
+from data_utils.build_table import load_env, connect
 from data_utils.build_metadata import get_parser
 
 logging.basicConfig(
@@ -113,8 +113,65 @@ def generate_table_meta(meta_dir, table, dialect=None):
         json.dump(meta, file, indent=4)
 
 
-def generate_filter(columns, reference, cohort=False):
+def retrieve_cohort(conn, directory, cohort):
+    """Retrieve cohort.
+
+    :param conn: SQLAlchemy connection or session.
+    :type conn: sqlalchemy.Engine
+
+    :param directory: Path for metadata directory.
+    :type directory: str
+
+    :param reference: Columns used to filter in the reference table.
+    :type reference: dict
+
+    :param cohort: Name of cohort table or name of cohort file.
+    :type cohort: str
+    """
+    logging.info("GENERATING COHORT DATA")
+
+    # If a table is specified, we copy it over
+    if not cohort.endswith(".sql"):
+        # Connect to source (build) database
+        db_params = load_env(directory)
+        source_conn = connect(**db_params).bind.engine
+        schema, table = cohort.split(".")
+
+        # Retrieve data types
+        dtype = {}
+        inspector = inspect(source_conn)
+        for col_info in inspector.get_columns(table, schema=schema):
+            col_name = col_info["name"]
+            col_type = col_info["type"]
+            dialect_obj = registry.load(conn.dialect.name)
+            dialect_type = col_type.dialect_impl(dialect_obj())
+            dtype[col_name] = dialect_type
+
+        # Transfer cohort data
+        cohort = pd.read_sql_table(table, source_conn, schema)
+        cohort.to_sql(f'tmp_cohort_{UUID}', conn.engine, index=False,
+                      dtype=dtype)
+        return
+
+    # Otherwise we create it from the cohort SQL file
+    with open(directory / 'extract' / 'cohort.sql', encoding="utf-8") as file:
+        conn.execute(text(dedent("""
+        CREATE TABLE tmp_cohort_{uuid} AS
+        {query}
+        """).format(
+            uuid=UUID,
+            query=file.read()
+        )))
+
+
+def generate_filter(conn, directory, columns, reference, cohort=None):
     """Generate table metadata from DBMS.
+
+    :param conn: SQLAlchemy connection or session.
+    :type conn: sqlalchemy.Engine
+
+    :param directory: Path for metadata directory.
+    :type directory: str
 
     :param columns: Columns used to filter.
     :type columns: list[str]
@@ -122,11 +179,18 @@ def generate_filter(columns, reference, cohort=False):
     :param reference: Columns used to filter in the reference table.
     :type reference: dict
 
-    :return: .
+    :param cohort: Name of cohort table or name of cohort file.
+    :type cohort: str
+
+    :return: Cohort filter query.
     :rtype: str
     """
-    # Handle table name
-    table = "cohort" if cohort else reference["table"]
+    # Handle table name and cohort filter
+    if cohort:
+        table = "cohort"
+        retrieve_cohort(conn, directory, cohort)
+    else:
+        table = reference["table"]
 
     # Generate IN expressions
     return dedent("""
@@ -144,12 +208,16 @@ def generate_filter(columns, reference, cohort=False):
     ).split("\n")
 
 
-def generate_table_data(conn, data, schema, table, filters, export=True):
+def generate_table_data(conn, directory, data, schema, table, filters,
+                        export=True):
     # pylint: disable=too-many-arguments, too-many-positional-arguments
     """Generate table metadata from DBMS.
 
     :param conn: SQLAlchemy connection or session.
     :type conn: sqlalchemy.Engine
+
+    :param directory: Path for metadata directory.
+    :type directory: str
 
     :param data: Data of retrieved tables.
     :type data: pandas.DataFrame
@@ -182,7 +250,7 @@ def generate_table_data(conn, data, schema, table, filters, export=True):
         table=table,
         uuid=UUID,
         filters="\n  UNION ALL\n".join(
-            "\n  ".join(generate_filter(**filter))
+            "\n  ".join(generate_filter(conn, directory, **filter))
             for filter in filters
         )
     )
@@ -245,18 +313,6 @@ def main(args=None):
     )).connect()
     conn.execution_options(stream_results=True)
 
-    # Retrieve cohort data
-    data = {}
-    logging.info("GENERATING COHORT DATA")
-    with open(directory / 'extract' / 'cohort.sql', encoding="utf-8") as file:
-        conn.execute(text(dedent("""
-        CREATE TABLE tmp_cohort_{uuid} AS
-        {query}
-        """).format(
-            uuid=UUID,
-            query=file.read()
-        )))
-
     # Create data directory if not exists
     data_dir = directory / "data"
     data_dir.mkdir(exist_ok=True)
@@ -284,6 +340,7 @@ def main(args=None):
                 dependencies.add(f"{reference['schema']}.{reference['table']}")
 
     # Retrieve information
+    data = {}
     for extract_meta in included:
         # Create dict entry for schema
         if (schema := extract_meta["schema"]) not in data:
@@ -297,7 +354,8 @@ def main(args=None):
             export = table in args.include
 
         # Retrieve data
-        generate_table_data(conn, data, **extract_meta, export=export)
+        generate_table_data(conn, directory, data, **extract_meta,
+                            export=export)
 
         # Skip export if empty
         table = extract_meta["table"]
