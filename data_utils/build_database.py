@@ -106,7 +106,7 @@ def main(args=None):
     ignore = []
     if (ignore_file := directory / ".dataignore").exists():
         with ignore_file.open("r", encoding="utf-8", errors="ignore") as file:
-            ignore = file.readlines()
+            ignore = file.read().splitlines()
 
     # Iterate through all table metadata
     tables_meta = []
