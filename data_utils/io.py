@@ -23,6 +23,7 @@ def open_excel(path, encoding):
     buffer = TextIOWrapper(BytesIO(), encoding=encoding)
     with warnings.catch_warnings(record=True):
         warnings.simplefilter("always")
-        buffer.writelines(pd.read_excel(path).to_csv(index=False))
+        buffer.writelines(
+            pd.read_excel(path, dtype=object).to_csv(index=False))
     buffer.seek(0)
     return buffer
