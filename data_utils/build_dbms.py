@@ -389,8 +389,7 @@ def main(args=None):
                 continue
             retrieve_cohort(conn, directory, filter_["cohort"])
             break
-        else:
-            break
+        break
 
     # Retrieve information
     data = {}

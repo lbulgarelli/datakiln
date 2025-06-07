@@ -1301,7 +1301,6 @@ def stage(meta_path, conn):
     # Determine file type(s)
     for file in files:
         suffix = "".join(file.suffixes)
-        print(suffix)
         if suffix not in StageMeta._readers:  # pylint: disable=protected-access # noqa: E501
             continue
         data_path = file.absolute()
