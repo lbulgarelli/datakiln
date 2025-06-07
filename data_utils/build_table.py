@@ -1290,17 +1290,18 @@ def stage(meta_path, conn):
     # Determine whether we need to load
     # one or multiple files
     if (table_dir := data_dir / meta_name).is_dir():
-        files = table_dir.iterdir()
+        files = list(table_dir.iterdir())
     else:
-        files = data_dir.glob(f"{meta_name}.*")
+        files = list(data_dir.glob(f"{meta_name}.*"))
 
     # Generate error if not files are found
-    if not any(files):
+    if not files:
         raise FileNotFoundError(f"No files found for metadata: '{meta_name}'")
 
     # Determine file type(s)
     for file in files:
         suffix = "".join(file.suffixes)
+        print(suffix)
         if suffix not in StageMeta._readers:  # pylint: disable=protected-access # noqa: E501
             continue
         data_path = file.absolute()
