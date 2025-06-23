@@ -211,8 +211,11 @@ def generate_join(columns, reference):
     )[1:]
 
 
-def generate_filter(columns, reference, cohort=None, join=None):
+def generate_filter(conn, columns, reference, cohort=None, join=None):
     """Generate table metadata from DBMS.
+
+    :param conn: SQLAlchemy connection or session.
+    :type conn: sqlalchemy.Engine
 
     :param columns: Columns used to filter.
     :type columns: list[str]
@@ -229,7 +232,16 @@ def generate_filter(columns, reference, cohort=None, join=None):
     # Handle table name and cohort filter
     table = "cohort" if cohort else reference["table"]
 
-    # Generate join
+    # Create index to speed-up filter
+    sql = dedent("""
+    CREATE INDEX tmp_{table}_{uuid}_idx_{short} ON tmp_{table}_{uuid} ({columns})
+    """).format(
+        table=table,
+        uuid=UUID,
+        short="_".join(column[:5] for column in reference["columns"]),
+        columns=", ".join(reference["columns"])
+    )
+    conn.execute(text(sql))
 
     # Generate EXISTS subqueries
     return dedent("""
@@ -293,7 +305,7 @@ def generate_table_data(conn, data, schema, table, filters, export=True):
         table=table,
         uuid=UUID,
         filters="\n  UNION ALL\n".join("\n  ".join(
-            generate_filter(**filter))
+            generate_filter(conn, **filter))
             for filter in filters
         )
     )
