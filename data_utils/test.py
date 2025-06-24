@@ -42,14 +42,14 @@ class TestBuild():
 
     def test_load_meta(self):
         """Test loading table json"""
-        for meta_path in (DIRECTORY / "metadata").glob("*.json"):
+        for meta_path in DIRECTORY.glob("**/metadata/*.json"):
             if meta_path in self.ignore:
                 continue
             with open(meta_path, encoding="utf-8") as file:
                 meta_json = json.load(file)
             table_meta = TableMeta(**meta_json)
             self.tables_meta.append(table_meta)
-     
+
     def test_create_table(self, test_session):
         """Test create database tables"""
         insp = inspect(test_session.get_bind())
@@ -61,7 +61,7 @@ class TestBuild():
                 insp.has_table(table_meta.name, table_meta.schema) and
                 insp.has_table(table_meta.name, stage_meta.schema)
             )
-     
+
     def test_create_table(self, test_session):
         """Test create database tables"""
         for table_meta in self.tables_meta:
