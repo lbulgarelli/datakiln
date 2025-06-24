@@ -210,6 +210,25 @@ def generate_join(columns, reference):
         )
     )[1:]
 
+def columns_indexed(conn, table, columns):
+    """Evaluate the existence of a index with the specified columns.
+
+    :param conn: SQLAlchemy connection or session.
+    :type conn: sqlalchemy.Engine
+
+    :param table: Name of the table in the source DBMS.
+    :type table: str
+
+    :param columns: Columns in the index.
+    :type columns: list[str]
+
+    :return: Does the index exist?
+    :rtype: bool
+    """
+    insp = inspect(conn)
+    for idx in insp.get_indexes(table):
+        if set(idx["column_names"]) == set(columns):
+            return True
 
 def generate_filter(conn, columns, reference, cohort=None, join=None):
     """Generate table metadata from DBMS.
@@ -231,27 +250,27 @@ def generate_filter(conn, columns, reference, cohort=None, join=None):
     """
     # Handle table name and cohort filter
     table = "cohort" if cohort else reference["table"]
+    table = f"tmp_{table}_{UUID}"
 
     # Create index to speed-up filter
-    sql = dedent("""
-    CREATE INDEX tmp_{table}_{uuid}_idx_{short} ON tmp_{table}_{uuid} ({columns})
-    """).format(
-        table=table,
-        uuid=UUID,
-        short="_".join(column[:5] for column in reference["columns"]),
-        columns=", ".join(reference["columns"])
-    )
-    conn.execute(text(sql))
+    if not columns_indexed(conn, table, reference["columns"]):
+        sql = dedent("""
+        CREATE INDEX {table}_idx_{short} ON {table} ({columns})
+        """).format(
+            table=table,
+            short="_".join(column[:5] for column in reference["columns"]),
+            columns=", ".join(reference["columns"])
+        )
+        conn.execute(text(sql))
 
     # Generate EXISTS subqueries
     return dedent("""
     SELECT 1
-    FROM tmp_{table}_{uuid} ref
+    FROM {table} ref
     {join} WHERE 1 = 1
     AND {columns}
     """).format(
         table=table,
-        uuid=UUID,
         join="  ".join(
             generate_join(**join_meta)
             for join_meta in join or []
