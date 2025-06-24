@@ -43,7 +43,7 @@ class TestBuild():
     def test_load_meta(self):
         """Test loading table json"""
         for meta_path in DIRECTORY.glob("**/metadata/*.json"):
-            if meta_path in self.ignore:
+            if str(meta_path.relative_to(DIRECTORY)) in self.ignore:
                 continue
             with open(meta_path, encoding="utf-8") as file:
                 meta_json = json.load(file)
@@ -61,12 +61,16 @@ class TestBuild():
                 insp.has_table(table_meta.name, table_meta.schema) and
                 insp.has_table(table_meta.name, stage_meta.schema)
             )
-
-    def test_create_table(self, test_session):
-        """Test create database tables"""
-        for table_meta in self.tables_meta:
-            table_meta.create(test_session)
             table_meta.enforce_constraints(test_session)
+
+    def test_data(self, test_session):
+        """Test if data exists"""
+        data_dir = DIRECTORY / "data"
+        for table_meta in self.tables_meta:
+            file_pattern = f"{table_meta.name}.*.dvc"
+            dir_pattern = f"{table_meta.name}.dvc"
+            files = list(data_dir.glob(file_pattern)) + list(data_dir.glob(dir_pattern))
+            assert len(files) > 0, table_meta.name
 
     def test_derive(self, test_session):
         """Test create derived views"""
