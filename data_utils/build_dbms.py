@@ -229,6 +229,7 @@ def columns_indexed(conn, table, columns):
     for idx in insp.get_indexes(table):
         if set(idx["column_names"]) == set(columns):
             return True
+    return False
 
 def generate_filter(conn, columns, reference, cohort=None, join=None):
     """Generate table metadata from DBMS.

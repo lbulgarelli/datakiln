@@ -50,7 +50,7 @@ class TestBuild():
             table_meta = TableMeta(**meta_json)
             self.tables_meta.append(table_meta)
 
-    def test_create_table(self, test_session):
+    def test_create_table(self, test_session):  # pylint: disable=redefined-outer-name
         """Test create database tables"""
         insp = inspect(test_session.get_bind())
 
@@ -63,7 +63,7 @@ class TestBuild():
             )
             table_meta.enforce_constraints(test_session)
 
-    def test_data(self, test_session):
+    def test_data(self):
         """Test if data exists"""
         data_dir = DIRECTORY / "data"
         for table_meta in self.tables_meta:
@@ -72,6 +72,6 @@ class TestBuild():
             files = list(data_dir.glob(file_pattern)) + list(data_dir.glob(dir_pattern))
             assert len(files) > 0, table_meta.name
 
-    def test_derive(self, test_session):
+    def test_derive(self, test_session):  # pylint: disable=redefined-outer-name
         """Test create derived views"""
         execute_directory(DIRECTORY / "derive", test_session, self.ignore)
