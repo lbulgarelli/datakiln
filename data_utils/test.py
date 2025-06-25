@@ -33,6 +33,7 @@ class TestBuild():
     Test loading functions
     """
     tables_meta = []
+    dependencies_meta = []
 
     # Retrieve files to ignore
     ignore = []
@@ -48,13 +49,16 @@ class TestBuild():
             with open(meta_path, encoding="utf-8") as file:
                 meta_json = json.load(file)
             table_meta = TableMeta(**meta_json)
-            self.tables_meta.append(table_meta)
+            if meta_path.parents[1] == DIRECTORY:
+                self.tables_meta.append(table_meta)
+            else:
+                self.dependencies_meta.append(table_meta)
 
     def test_create_table(self, test_session):  # pylint: disable=redefined-outer-name
         """Test create database tables"""
         insp = inspect(test_session.get_bind())
 
-        for table_meta in self.tables_meta:
+        for table_meta in self.tables_meta + self.dependencies_meta:
             table_meta.create(test_session)
             stage_meta = table_meta.stage_meta
             assert (
