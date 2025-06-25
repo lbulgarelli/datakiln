@@ -70,11 +70,14 @@ class TestBuild():
     def test_data(self):
         """Test if data exists"""
         data_dir = DIRECTORY / "data"
+        no_data = []
         for table_meta in self.tables_meta:
             file_pattern = f"{table_meta.name}.*.dvc"
             dir_pattern = f"{table_meta.name}.dvc"
             files = list(data_dir.glob(file_pattern)) + list(data_dir.glob(dir_pattern))
-            assert len(files) > 0, table_meta.name
+            if len(files) == 0:
+                no_data.append(table_meta.name)
+        assert len(no_data) == 0, no_data
 
     def test_derive(self, test_session):  # pylint: disable=redefined-outer-name
         """Test create derived views"""
