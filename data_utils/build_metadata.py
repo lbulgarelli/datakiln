@@ -12,8 +12,8 @@ from slugify import slugify
 
 
 SUPPORTED_EXTENSIONS = {
-    ".csv": partial(pd.read_csv, verbose=True),
-    ".xlsx": partial(pd.read_excel, sheet_name=None, verbose=True)
+    ".csv": partial(pd.read_csv),
+    ".xlsx": partial(pd.read_excel, sheet_name=None)
 }
 
 
