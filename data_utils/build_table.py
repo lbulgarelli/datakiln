@@ -655,7 +655,7 @@ class TableBase():
     _row_id = "meta_row_id"
 
     def __init__(self, name, schema, columns, na_values=None,
-                 encoding="utf-8"):
+                 encoding="utf-8", delimiter=","):
         # pylint: disable=too-many-arguments, too-many-positional-arguments
         """
         :param name: Name of the table.
@@ -680,6 +680,7 @@ class TableBase():
         self.schema = schema
         self.columns = []
         self.encoding = encoding
+        self.delimiter = delimiter
         self.na_values = set(na_values or []) | STR_NA_VALUES
 
         # Instantiate metadata object for all columns
@@ -793,7 +794,7 @@ class StageMeta(TableBase):
         suffix = "".join(data_path.suffixes)
         reader = self._readers[suffix]
         buffer = reader(data_path, encoding=self.encoding)
-        header = next(csv.reader(buffer))
+        header = next(csv.reader(buffer, delimiter=self.delimiter))
 
         # To load the data, we need to order
         # the column list according to the file
@@ -806,10 +807,11 @@ class StageMeta(TableBase):
             {columns}
         )
         FROM STDIN
-        WITH (FORMAT CSV)
+        WITH (FORMAT CSV, DELIMITER E'{delimiter}')
         """).format(
             name=self.name, schema=self.schema,
-            columns='\n  , '.join(map(str, columns))
+            columns='\n  , '.join(map(str, columns)),
+            delimiter=self.delimiter
         )
 
         # Execute and copy from file
@@ -871,7 +873,7 @@ class TableMeta(TableBase):
         """
         stage_meta = StageMeta(
             name=self.name, schema=self.schema,
-            encoding=self.encoding,
+            encoding=self.encoding, delimiter=self.delimiter,
             columns=list(map(dict, self.columns)))
 
         return stage_meta
