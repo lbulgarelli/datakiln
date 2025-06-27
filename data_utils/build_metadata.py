@@ -118,6 +118,8 @@ def main(args=None):
     """Generates metadata from data file."""
     # Get arguments
     parser = get_parser()
+    parser.add_argument('--delimiter', metavar="delimiter", type=str,
+                        required=False, help='Character to treat as delimiter.')
     args = parser.parse_args(args)
 
     # Get absolute path for specified directory
@@ -136,7 +138,10 @@ def main(args=None):
         logging.info("GENERATING METADATA: %s", data_path)
 
         # Read file
-        data = SUPPORTED_EXTENSIONS[extension](data_path.absolute())
+        params = {}
+        if args.delimiter:
+            params["delimiter"] = args.delimiter
+        data = SUPPORTED_EXTENSIONS[extension](data_path.absolute(), **params)
 
         # Excel files can have more than one sheet
         # so we handle the data as a dictionary
