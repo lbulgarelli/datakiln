@@ -2,6 +2,7 @@
 Generate metadata from data file.
 """
 import json
+import logging
 from pathlib import Path
 from itertools import starmap
 from functools import partial
@@ -10,6 +11,10 @@ from argparse import ArgumentParser
 import pandas as pd
 from slugify import slugify
 
+
+logging.basicConfig(
+    level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',
+    format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
 
 SUPPORTED_EXTENSIONS = {
     ".csv": partial(pd.read_csv, engine="python"),
@@ -128,6 +133,7 @@ def main(args=None):
         extension = data_path.suffix.lower()
         if extension not in SUPPORTED_EXTENSIONS:
             continue
+        logging.info("GENERATING METADATA: %s", data_path)
 
         # Read file
         data = SUPPORTED_EXTENSIONS[extension](data_path.absolute())
