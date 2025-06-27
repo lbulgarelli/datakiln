@@ -12,7 +12,7 @@ from slugify import slugify
 
 
 SUPPORTED_EXTENSIONS = {
-    ".csv": partial(pd.read_csv),
+    ".csv": partial(pd.read_csv, engine="python"),
     ".xlsx": partial(pd.read_excel, sheet_name=None)
 }
 
