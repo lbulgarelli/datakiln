@@ -199,7 +199,7 @@ def generate_join(columns, reference):
         schema=reference["schema"],
         table=reference["table"],
         alias=reference["alias"],
-        columns="\nAND ".join(
+        columns="\n  AND ".join(
             f"{alias_column(col, 'ref')} {op} {alias}.{ref}"
             for col, op, alias, ref in zip(
                 columns,
@@ -231,6 +231,42 @@ def columns_indexed(conn, table, columns):
             return True
     return False
 
+
+def resolve_columns(columns, join):
+    """Resolve columns to use in database index when using JOIN clauses.
+
+    :param columns: Columns to resolve.
+    :type columns: list[str]
+
+    :param join: Metadata for JOIN clauses.
+    :type join: str
+
+    :return: Columns to use in index.
+    :rtype: list[str]
+    """
+    resolved = []
+    for column in columns:
+        # Skip duplicates
+        if column in resolved:
+            continue
+
+        # Add columns without alias directly
+        if "." not in column:
+            resolved.append(column)
+            continue
+        
+        # Resolved aliased columns
+        alias, column = column.split(".", 1)
+        for joined in join:
+            if joined["reference"]["alias"] != alias:
+                continue
+
+            more = resolve_columns(joined["columns"], join)
+            if not set(more) <= set(resolved):
+                resolved.extend(more)
+
+    return resolved
+
 def generate_filter(conn, columns, reference, cohort=None, join=None):
     """Generate table metadata from DBMS.
 
@@ -246,6 +282,9 @@ def generate_filter(conn, columns, reference, cohort=None, join=None):
     :param cohort: Name of cohort table or name of cohort file.
     :type cohort: str
 
+    :param join: Metadata for JOIN clauses.
+    :type join: str
+
     :return: Cohort filter query.
     :rtype: str
     """
@@ -253,14 +292,18 @@ def generate_filter(conn, columns, reference, cohort=None, join=None):
     table = "cohort" if cohort else reference["table"]
     table = f"tmp_{table}_{UUID}"
 
+    # The list may include columns from joined tables, so we
+    # retrieve joined columns to create the appropriate index
+    ref_columns = resolve_columns(reference["columns"], join)
+
     # Create index to speed-up filter
-    if not columns_indexed(conn, table, reference["columns"]):
+    if not columns_indexed(conn, table, ref_columns):
         sql = dedent("""
         CREATE INDEX {table}_idx_{short} ON {table} ({columns})
         """).format(
             table=table,
-            short="_".join(column[:5] for column in reference["columns"]),
-            columns=", ".join(reference["columns"])
+            short="_".join(column[:5] for column in ref_columns),
+            columns=", ".join(ref_columns)
         )
         conn.execute(text(sql))
 
@@ -268,7 +311,7 @@ def generate_filter(conn, columns, reference, cohort=None, join=None):
     return dedent("""
     SELECT 1
     FROM {table} ref
-    {join} WHERE 1 = 1
+    {join}WHERE 1 = 1
     AND {columns}
     """).format(
         table=table,
