@@ -1,6 +1,7 @@
 """
 Builds table metadata from DBMS
 """
+import re
 import json
 import gzip
 import logging
@@ -174,8 +175,14 @@ def alias_column(column, default):
     :return: Column reference.
     :rtype: str
     """
+    # If already aliased, skip
     if "." in column:
         return column
+
+    # Curly brackets delimit literal values
+    if value := re.search(r'\{(.*?)\}', column):
+        return value.group(1)
+
     return f"{default}.{column}"
 
 
@@ -246,8 +253,8 @@ def resolve_columns(columns, join):
     """
     resolved = []
     for column in columns:
-        # Skip duplicates
-        if column in resolved:
+        # Skip duplicates and literal values
+        if column in resolved or re.search(r'\{(.*?)\}', column):
             continue
 
         # Add columns without alias directly
@@ -315,7 +322,7 @@ def generate_filter(conn, columns, reference, cohort=None, join=None):
     AND {columns}
     """).format(
         table=table,
-        join="  ".join(
+        join="".join(
             generate_join(**join_meta)
             for join_meta in join or []
         ),
