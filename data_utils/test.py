@@ -32,7 +32,7 @@ class TestBuild():
     """
     Test loading functions
     """
-    tables_meta = []
+    tables_meta = {}
     dependencies_meta = []
 
     # Retrieve files to ignore
@@ -50,7 +50,7 @@ class TestBuild():
                 meta_json = json.load(file)
             table_meta = TableMeta(**meta_json)
             if meta_path.parents[1] == DIRECTORY:
-                self.tables_meta.append(table_meta)
+                self.tables_meta[meta_path] = table_meta
             else:
                 self.dependencies_meta.append(table_meta)
 
@@ -58,7 +58,7 @@ class TestBuild():
         """Test create database tables"""
         insp = inspect(test_session.get_bind())
 
-        for table_meta in self.tables_meta + self.dependencies_meta:
+        for table_meta in list(self.tables_meta.values()) + self.dependencies_meta:
             table_meta.create(test_session)
             stage_meta = table_meta.stage_meta
             assert (
@@ -71,9 +71,9 @@ class TestBuild():
         """Test if data exists"""
         data_dir = DIRECTORY / "data"
         no_data = []
-        for table_meta in self.tables_meta:
-            file_pattern = f"{table_meta.name}.*.dvc"
-            dir_pattern = f"{table_meta.name}.dvc"
+        for meta_path, table_meta in self.tables_meta.items():
+            file_pattern = f"{meta_path.stem}.*.dvc"
+            dir_pattern = f"{meta_path.stem}.dvc"
             files = list(data_dir.glob(file_pattern)) + list(data_dir.glob(dir_pattern))
             if len(files) == 0:
                 no_data.append(table_meta.name)
