@@ -1254,7 +1254,8 @@ def connect(user, host, port, database, dialect):
     :rtype: sqlalchemy.orm.session.Session
     """
     engine = create_engine(
-        f"{dialect}://{user}:@{host}:{port}/{database}")
+        f"{dialect}://{user}:@{host}:{port}/{database}",
+        isolation_level="SERIALIZABLE", pool_recycle=60)
 
     # Create database
     if not database_exists(engine.url):
