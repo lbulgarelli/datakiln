@@ -261,7 +261,7 @@ def resolve_columns(columns, join):
         if "." not in column:
             resolved.append(column)
             continue
-        
+
         # Resolved aliased columns
         alias, column = column.split(".", 1)
         for joined in join:
