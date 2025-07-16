@@ -5,7 +5,7 @@ from pathlib import Path
 from getpass import getuser
 
 import sqlparse
-from sqlparse.sql import Statement
+from sqlparse.sql import Statement, Identifier
 from sqlalchemy.orm.session import Session as SQLAlchemySession
 from sqlalchemy import create_engine, text
 from decouple import Config, RepositoryEnv, config
@@ -14,8 +14,12 @@ from sqlalchemy_utils import create_database, database_exists
 
 
 class Session(SQLAlchemySession):
+    # pylint: disable=too-few-public-methods
     """Manages persistence operations for ORM-mapped objects.
     """
+    def _is_identifier(self, token):
+        return isinstance(token, Identifier) and token.value != 'MATERIALIZED'
+
     def execute(self, statement):
         """Executes a SQL statement construct and returns a CursorResult.
 
@@ -23,9 +27,17 @@ class Session(SQLAlchemySession):
         :type statement: str
         """
         parsed = sqlparse.parse(statement)
-        types = list(map(Statement.get_type, parsed))
-        if len(parsed) > 1 and types != ["DROP", "CREATE"]:
+        stmt_types = list(map(Statement.get_type, parsed))
+        if len(parsed) > 1 and stmt_types != ["DROP", "CREATE"]:
             raise ValueError("Only one SQL statement is allowed per file.")
+
+        # For DROP, CREATE pairs, validate the same identifier is used
+        if stmt_types == ["DROP", "CREATE"]:
+            id_drop = parsed[0].token_matching(self._is_identifier, 0)
+            id_create = parsed[1].token_matching(self._is_identifier, 0)
+
+            if id_drop.value != id_create.value:
+                raise ValueError("DROP/CREATE have distinct identifiers.")
 
         return super().execute(text(statement))
 
