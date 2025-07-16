@@ -10,7 +10,8 @@ import pytest
 from sqlalchemy import inspect
 
 from data_utils.build_database import execute_directory
-from data_utils.build_table import load_env, connect, TableMeta
+from data_utils.build_table import TableMeta
+from data_utils.database import load_env, connect
 
 DIRECTORY = Path()
 

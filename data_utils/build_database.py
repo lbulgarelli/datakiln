@@ -9,7 +9,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 
 from data_utils.build_metadata import get_parser
-from data_utils.build_table import load_env, connect, stage
+from data_utils.build_table import stage
+from data_utils.database import load_env, connect
 
 
 logging.basicConfig(

@@ -8,18 +8,14 @@ import gzip
 import json
 import logging
 from pathlib import Path
-from getpass import getuser
 from textwrap import dedent
 from itertools import chain
 from functools import partial
 from dataclasses import dataclass
 from collections import defaultdict
 
-from sqlalchemy.orm.session import Session
-from sqlalchemy import create_engine, text
-from decouple import Config, RepositoryEnv, config
+from sqlalchemy import text
 from pandas._libs.parsers import STR_NA_VALUES  # pylint: disable=no-name-in-module # noqa: E501
-from sqlalchemy_utils import create_database, database_exists
 
 from data_utils.build_metadata import get_parser
 from data_utils.io import open_excel
@@ -1202,69 +1198,6 @@ class TableMeta(TableBase):
         # Order columns according to csv
         ordered = sorted(filtered, key=lambda c: order.index(c.name))
         return list(ordered)
-
-
-def load_env(directory):
-    """Load environment variables.
-
-    :param directory: Path for metadata directory.
-    :type directory: str
-    """
-    db_params = {}
-
-    # Environment file directory
-    dotenv_file = Path(directory) / ".env"
-
-    # If the file does not exist,
-    # try to retrieve from the shell environment
-    if dotenv_file.exists():
-        env_config = Config(RepositoryEnv(dotenv_file))
-    else:
-        env_config = config
-
-    # Get environment variables
-    db_params["user"] = env_config("DB_USER", getuser())
-    db_params["host"] = env_config("DB_HOST", "localhost")
-    db_params["port"] = env_config("DB_PORT", "5432")
-    db_params["database"] = env_config("DB_NAME", "postgres")
-    db_params["dialect"] = env_config("DB_DIALECT", "postgresql")
-
-    return db_params
-
-
-def connect(user, host, port, database, dialect):
-    """Connect to database using SQLAlchemy.
-
-    :param user: Name of the database user.
-    :type user: str
-
-    :param host: Hostname of the database server.
-    :type host: str
-
-    :param port: Network port of the database server.
-    :type port: int
-
-    :param database: Name of the database.
-    :type database: str
-
-    :param dialect: Dialect of the database.
-    :type dialect: str
-
-    :return: SQLAlchemy session.
-    :rtype: sqlalchemy.orm.session.Session
-    """
-    engine = create_engine(
-        f"{dialect}://{user}:@{host}:{port}/{database}",
-        isolation_level="SERIALIZABLE", pool_recycle=60)
-
-    # Create database
-    if not database_exists(engine.url):
-        create_database(engine.url)
-
-    # Connect
-    conn = Session(bind=engine.connect())
-
-    return conn
 
 
 def stage(meta_path, conn):

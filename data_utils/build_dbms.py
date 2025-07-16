@@ -16,7 +16,7 @@ from sqlalchemy import MetaData, URL
 from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.dialects import registry
 
-from data_utils.build_table import load_env, connect
+from data_utils.database import load_env, connect
 from data_utils.build_metadata import get_parser
 
 logging.basicConfig(
