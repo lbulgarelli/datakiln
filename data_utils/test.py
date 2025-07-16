@@ -55,11 +55,12 @@ class TestBuild():
             else:
                 self.dependencies_meta.append(table_meta)
 
-    def test_create_table(self, test_session):  # pylint: disable=redefined-outer-name
+    def test_create_table(self, test_session):  # pylint: disable=redefined-outer-name # noqa: E501
         """Test create database tables"""
         insp = inspect(test_session.get_bind())
 
-        for table_meta in list(self.tables_meta.values()) + self.dependencies_meta:
+        metadata = list(self.tables_meta.values()) + self.dependencies_meta
+        for table_meta in metadata:
             table_meta.create(test_session)
             stage_meta = table_meta.stage_meta
             assert (
@@ -75,11 +76,12 @@ class TestBuild():
         for meta_path, table_meta in self.tables_meta.items():
             file_pattern = f"{meta_path.stem}.*.dvc"
             dir_pattern = f"{meta_path.stem}.dvc"
-            files = list(data_dir.glob(file_pattern)) + list(data_dir.glob(dir_pattern))
+            files = list(data_dir.glob(file_pattern))
+            files += list(data_dir.glob(dir_pattern))
             if len(files) == 0:
                 no_data.append(table_meta.name)
         assert len(no_data) == 0, no_data
 
-    def test_derive(self, test_session):  # pylint: disable=redefined-outer-name
+    def test_derive(self, test_session):  # pylint: disable=redefined-outer-name # noqa: E501
         """Test create derived views"""
         execute_directory(DIRECTORY / "derive", test_session, self.ignore)

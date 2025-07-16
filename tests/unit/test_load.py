@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 import pandas as pd
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect
 
 from data_utils.test import test_session
 from data_utils.build_table import TableMeta, stage
@@ -60,9 +60,9 @@ class TestBuild():
             data = pd.read_csv(data_path)
             count = len(data.index)
 
-            assert test_session.execute(text(
+            assert test_session.execute(
                 f"SELECT * FROM {stage_meta.schema}.{stage_meta.name}"
-            )).rowcount == count
+            ).rowcount == count
 
     def test_load(self, test_session):
         """Test loading to final table"""
@@ -74,6 +74,6 @@ class TestBuild():
             data = pd.read_csv(data_path)
             count = len(data.index)
 
-            assert test_session.execute(text(
+            assert test_session.execute(
                 f"SELECT * FROM {table_meta.schema}.{table_meta.name}"
-            )).rowcount == count
+            ).rowcount == count

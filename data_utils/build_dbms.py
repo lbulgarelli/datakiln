@@ -13,7 +13,7 @@ from getpass import getpass, getuser
 
 import pandas as pd
 from sqlalchemy import MetaData, URL
-from sqlalchemy import create_engine, text, inspect
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.dialects import registry
 
 from data_utils.database import load_env, connect
@@ -154,13 +154,13 @@ def retrieve_cohort(conn, directory, cohort):
 
     # Otherwise we create it from the cohort SQL file
     with open(directory / 'extract' / 'cohort.sql', encoding="utf-8") as file:
-        conn.execute(text(dedent("""
+        conn.execute(dedent("""
         CREATE TABLE tmp_cohort_{uuid} AS
         {query}
-        """).format(
+        """)).format(
             uuid=UUID,
             query=file.read()
-        )))
+        )
 
 
 def alias_column(column, default):
@@ -216,6 +216,7 @@ def generate_join(columns, reference):
             )
         )
     )[1:]
+
 
 def columns_indexed(conn, table, columns):
     """Evaluate the existence of a index with the specified columns.
@@ -274,6 +275,7 @@ def resolve_columns(columns, join):
 
     return resolved
 
+
 def generate_filter(conn, columns, reference, cohort=None, join=None):
     """Generate table metadata from DBMS.
 
@@ -312,7 +314,7 @@ def generate_filter(conn, columns, reference, cohort=None, join=None):
             short="_".join(column[:5] for column in ref_columns),
             columns=", ".join(ref_columns)
         )
-        conn.execute(text(sql))
+        conn.execute(sql)
 
     # Generate EXISTS subqueries
     return dedent("""
@@ -379,7 +381,7 @@ def generate_table_data(conn, data, schema, table, filters, export=True):
             for filter in filters
         )
     )
-    conn.execute(text(sql))
+    conn.execute(sql)
 
     # Skip retrieval if its not going to be exported
     if not export:
@@ -511,14 +513,14 @@ def main(args=None):
     # Drop tables
     for schema, tables in data.items():
         for table in list(tables.keys()):
-            conn.execute(text(f"DROP TABLE tmp_{table}_{UUID}"))
+            conn.execute(f"DROP TABLE tmp_{table}_{UUID}")
 
             # We remove tables from dict if they are not included
             if not tables[table]:
                 tables.pop(table)
 
     # Drop cohort table
-    conn.execute(text(f"DROP TABLE tmp_cohort_{UUID}"))
+    conn.execute(f"DROP TABLE tmp_cohort_{UUID}")
 
     # Skip metadata generation
     if not args.metadata:

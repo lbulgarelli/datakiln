@@ -5,7 +5,6 @@ import logging
 from pathlib import Path
 from textwrap import dedent
 
-from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 
 from data_utils.build_metadata import get_parser
@@ -39,7 +38,7 @@ def execute_directory(directory, conn, ignore):
 
         # Load file
         with open(file_name, "r", encoding="utf-8") as file:
-            sql = text(file.read())
+            sql = file.read()
 
         # Execute query
         conn.execute(sql)
@@ -59,7 +58,7 @@ def grant(conn, role, users=None):
     """
     # Iterates all schemas in database and grant
     # read permissions to database role
-    conn.execute(text(dedent(f"""
+    conn.execute(dedent(f"""
     DO $do$
     DECLARE
       schema TEXT;
@@ -77,16 +76,16 @@ def grant(conn, role, users=None):
         EXECUTE format($$ GRANT SELECT ON ALL TABLES IN SCHEMA %I TO {role} $$, schema);
       END LOOP;
     END;
-    $do$;""")))  # noqa: E501
+    $do$;"""))  # noqa: E501
 
     # Grant permissions to users by proxy of the database role
     if users:
-        conn.execute(text(dedent("""
+        conn.execute(dedent("""
         GRANT {role} TO "{users}"
-        """).format(
+        """)).format(
             role=role,
-            users='", "'.join(users))
-        ))
+            users='", "'.join(users)
+        )
 
 
 def create_role(conn, database):
@@ -99,9 +98,9 @@ def create_role(conn, database):
     :type database: str
     """
     try:
-        conn.execute(text(dedent("""
+        conn.execute(dedent("""
         CREATE ROLE {database}
-        """).format(database=database)))
+        """)).format(database=database)
     except ProgrammingError as error:
         message = f'role "{database}" already exists'
         if message in error._message():  # pylint: disable=protected-access

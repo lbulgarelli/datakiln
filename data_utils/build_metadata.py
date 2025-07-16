@@ -119,7 +119,8 @@ def main(args=None):
     # Get arguments
     parser = get_parser()
     parser.add_argument('--delimiter', metavar="delimiter", type=str,
-                        required=False, help='Character to treat as delimiter.')
+                        required=False,
+                        help='Character to treat as delimiter.')
     args = parser.parse_args(args)
 
     # Get absolute path for specified directory

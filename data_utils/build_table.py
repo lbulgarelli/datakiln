@@ -14,11 +14,11 @@ from functools import partial
 from dataclasses import dataclass
 from collections import defaultdict
 
-from sqlalchemy import text
 from pandas._libs.parsers import STR_NA_VALUES  # pylint: disable=no-name-in-module # noqa: E501
 
 from data_utils.build_metadata import get_parser
 from data_utils.io import open_excel
+from data_utils.database import load_env, connect
 
 
 logging.basicConfig(
@@ -101,7 +101,7 @@ class ColumnMeta():
             name=self.rename,
             na_values="'\n  , '".join(na_values)
         )
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
     def enforce_type(self, conn, schema, name):
         """Resolve NULL values
@@ -125,7 +125,7 @@ class ColumnMeta():
         ALTER COLUMN {self.rename} TYPE {self.dtype[dialect]}
         USING {self.rename}::{self.dtype[dialect]}
         """)
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
     def enforce_required(self, conn, schema, name):
         """Enforce required column values.
@@ -148,7 +148,7 @@ class ColumnMeta():
         ALTER TABLE {schema}.{name}
         ALTER COLUMN {self.rename} SET NOT NULL
         """)
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
     def comment(self, conn, schema, name):
         """Add column description as a column comment.
@@ -170,7 +170,7 @@ class ColumnMeta():
         stmt = dedent(f"""
         COMMENT ON COLUMN {schema}.{name}.{self.rename} IS '{self.description}'
         """)
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
 
 class UnpivotColumnMeta(ColumnMeta):
@@ -403,7 +403,7 @@ class ForeignKeyMeta():
             reference=self.reference,
             r_columns=", ".join(self.reference.columns)
         )
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
     def _conditions(self):
         """Generate comparisons to match each foreign key column.
@@ -544,7 +544,7 @@ class LFSLocation(ColumnMeta):
                 transformed_matches.append(transformed_value)
 
             # Format the row as an SQL-compatible string
-            row_string = "({values}, {file})".format(  # pylint: disable=consider-using-f-string
+            row_string = "({values}, {file})".format(  # pylint: disable=consider-using-f-string # noqa: E501
                 values=", ".join(repr(val) for val in transformed_matches),
                 file=repr(str(file_path))
             )
@@ -579,7 +579,7 @@ class LFSLocation(ColumnMeta):
         stg_name = f"stg_{table.schema}.{table.name}_local_fs"
 
         # Drop table statement
-        conn.execute(text(f"DROP TABLE IF EXISTS {stg_name}"))
+        conn.execute(f"DROP TABLE IF EXISTS {stg_name}")
 
         # Create statement
         stmt = dedent("""
@@ -597,7 +597,7 @@ class LFSLocation(ColumnMeta):
             values=',\n      '.join(rows),
             name=self.name
         )
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
     def add_column(self, conn, table):
         """Add local location column to table.
@@ -620,7 +620,7 @@ class LFSLocation(ColumnMeta):
             column=self.name,
             notnull='NOT NULL' if self.required else ''
         )
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
     def insert_file_locations(self, conn, match_columns, table):
         """Add staged local file system column to loaded table.
@@ -642,7 +642,7 @@ class LFSLocation(ColumnMeta):
                 for col in match_columns
             )
         )
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
 
 class TableBase():
@@ -692,11 +692,10 @@ class TableBase():
         :return: None
         """
         # Create the schema if it does not exists
-        conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {self.schema}"))
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {self.schema}")
 
         # We replace the table if it already exists
-        conn.execute(text(
-            f"DROP TABLE IF EXISTS {self.schema}.{self.name} CASCADE"))
+        conn.execute(f"DROP TABLE IF EXISTS {self.schema}.{self.name} CASCADE")
 
         # Add columns from unpivot in correct order
         columns = self.columns.copy()
@@ -720,10 +719,10 @@ class TableBase():
             name=self.name, schema=self.schema, row_id=self._row_id,
             columns=' TEXT\n  , '.join(map(str, columns)),
         )
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
         # Create index to speed up validations
-        conn.execute(text(f"""
+        conn.execute(dedent(f"""
         CREATE INDEX ON {self.schema}.{self.name} (meta_row_id)
         """))
 
@@ -763,12 +762,12 @@ class StageMeta(TableBase):
         super().create(conn)
 
         # Add column to log staging errors
-        conn.execute(text(f"""
+        conn.execute(dedent(f"""
         ALTER TABLE {self.schema}.{self.name} ADD COLUMN meta_log TEXT
         """))
 
         # Create index to speed up validations
-        conn.execute(text(f"""
+        conn.execute(dedent(f"""
         CREATE INDEX ON {self.schema}.{self.name} (meta_log)
         """))
 
@@ -940,7 +939,7 @@ class TableMeta(TableBase):
             aliased="\n  , ".join(aliased),
             laterals="".join(laterals)
         )
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
         # Drop unpivoted columns
         stmt = dedent("""
@@ -952,7 +951,7 @@ class TableMeta(TableBase):
             name=self.name,
             columns="\n,  DROP COLUMN ".join(drop)
         )
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
         # Enforce primary key
         self.enforce_pk(conn)
@@ -1014,7 +1013,7 @@ class TableMeta(TableBase):
                 name=self.name,
                 columns=", ".join(index)
             )
-            conn.execute(text(stmt))
+            conn.execute(stmt)
 
     def enforce_pk(self, conn):
         """Enforce primary key.
@@ -1030,7 +1029,7 @@ class TableMeta(TableBase):
             name=self.name, schema=self.schema,
             pk=', '.join(self.primary_key)
         )
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
     def load(self, conn):
         """Load data from stage.
@@ -1080,7 +1079,7 @@ class TableMeta(TableBase):
             name=self.name, schema=self.schema,
             where_reqs="\n  OR ".join(where_req)
         )
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
         # Flag rows violating a foreign key constraint
         stmt = dedent("""
@@ -1102,7 +1101,7 @@ class TableMeta(TableBase):
             n_fks=len(join_fks),
             null_fks="\n  ".join(chain(*null_fks)),
         )
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
         # Move rows to final schema
         stmt = dedent("""
@@ -1122,7 +1121,7 @@ class TableMeta(TableBase):
             columns="\n  , ".join(columns),
             typed="\n  , ".join(typed),
         )
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
         # Deleted moved rows
         stmt = dedent("""
@@ -1132,7 +1131,7 @@ class TableMeta(TableBase):
         """).format(
             name=self.name, schema=self.schema
         )
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
         # Rows that still remain in staging but did not
         # get flagged before this point are PK duplicates
@@ -1144,10 +1143,10 @@ class TableMeta(TableBase):
         """).format(
             name=self.name, schema=self.schema
         )
-        conn.execute(text(stmt))
+        conn.execute(stmt)
 
         # Warn of any remaining staged records
-        count = conn.execute(text(f"""
+        count = conn.execute(dedent(f"""
         SELECT COUNT(meta_row_id) FROM stg_{self.schema}.{self.name}
         """)).first()[0]
         if count > 0:
