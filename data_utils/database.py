@@ -5,6 +5,7 @@ from pathlib import Path
 from getpass import getuser
 
 import sqlparse
+from sqlparse.sql import Statement
 from sqlalchemy.orm.session import Session as SQLAlchemySession
 from sqlalchemy import create_engine, text
 from decouple import Config, RepositoryEnv, config
@@ -21,7 +22,9 @@ class Session(SQLAlchemySession):
         :param statement: Statement to be executed.
         :type statement: str
         """
-        if len(sqlparse.split(statement)) > 1:
+        parsed = sqlparse.parse(statement)
+        types = list(map(Statement.get_type, parsed))
+        if len(parsed) > 1 and types != ["DROP", "CREATE"]:
             raise ValueError("Only one SQL statement is allowed per file.")
 
         return super().execute(text(statement))
