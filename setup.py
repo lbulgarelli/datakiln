@@ -55,7 +55,8 @@ setup(
     install_requires=[
         "pandas>=2.1.0", "openpyxl>=3.1.0", "python-slugify>=8.0.0",
         "sqlalchemy>=2.0.0", "python-decouple>=3.8", "pytest>=8.1",
-        "psycopg2-binary>=2.9", "pycap>=2.6.0", "sqlalchemy-utils>=0.41.2"
+        "psycopg2-binary>=2.9", "pycap>=2.6.0", "sqlalchemy-utils>=0.41.2",
+        "sqlparse>=0.5.3"
     ],
 
     # Add to site-packages
