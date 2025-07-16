@@ -1198,52 +1198,53 @@ class TableMeta(TableBase):
         ordered = sorted(filtered, key=lambda c: order.index(c.name))
         return list(ordered)
 
+    @classmethod
+    def stage(cls, meta_path, conn):
+        """Load metadata and stage data.
 
-def stage(meta_path, conn):
-    """Load metadata and stage data.
+        :param meta_path: Path to the metadata
+        :type meta_path: str
 
-    :param meta_path: Path to the metadata
-    :type meta_path: str
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
 
-    :param conn: SQLAlchemy connection or session.
-    :type conn: sqlalchemy.Engine
+        :return: None
+        """
+        # Load metadata
+        with open(meta_path, encoding="utf-8") as file:
+            meta_json = json.load(file)
 
-    :return: None
-    """
-    # Load metadata
-    with open(meta_path, encoding="utf-8") as file:
-        meta_json = json.load(file)
+        # Create table
+        table_meta = TableMeta(**meta_json)
+        table_meta.create(conn)
 
-    # Create table
-    table_meta = TableMeta(**meta_json)
-    table_meta.create(conn)
+        # Determine data file name
+        meta_name = re.sub(r"^\d\d-", "", meta_path.stem)
+        data_dir = meta_path.parents[1] / "data"
 
-    # Determine data file name
-    meta_name = re.sub(r"^\d\d-", "", meta_path.stem)
-    data_dir = meta_path.parents[1] / "data"
+        # Determine whether we need to load
+        # one or multiple files
+        if (table_dir := data_dir / meta_name).is_dir():
+            files = list(table_dir.iterdir())
+        else:
+            files = list(data_dir.glob(f"{meta_name}.*"))
 
-    # Determine whether we need to load
-    # one or multiple files
-    if (table_dir := data_dir / meta_name).is_dir():
-        files = list(table_dir.iterdir())
-    else:
-        files = list(data_dir.glob(f"{meta_name}.*"))
+        # Generate error if not files are found
+        if not files:
+            raise FileNotFoundError(
+                f"No files found for metadata: '{meta_name}'")
 
-    # Generate error if not files are found
-    if not files:
-        raise FileNotFoundError(f"No files found for metadata: '{meta_name}'")
+        # Determine file type(s)
+        for file in files:
+            suffix = "".join(file.suffixes)
+            if suffix not in StageMeta._readers:  # pylint: disable=protected-access # noqa: E501
+                continue
+            data_path = file.absolute()
 
-    # Determine file type(s)
-    for file in files:
-        suffix = "".join(file.suffixes)
-        if suffix not in StageMeta._readers:  # pylint: disable=protected-access # noqa: E501
-            continue
-        data_path = file.absolute()
+            # Stage data
+            table_meta.stage_meta.load(conn, data_path)
 
-        # Stage data
-        table_meta.stage_meta.load(conn, data_path)
-
-    return table_meta
+        return table_meta
 
 
 def main(args=None):
@@ -1260,7 +1261,7 @@ def main(args=None):
     conn = connect(**db_params)
 
     # Load to final schema and commit changes
-    table_meta = stage(meta_path, conn)
+    table_meta = TableMeta.stage(meta_path, conn)
     table_meta.enforce_constraints(conn)
     table_meta.load(conn)
     table_meta.create_indexes(conn)

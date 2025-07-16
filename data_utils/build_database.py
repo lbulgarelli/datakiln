@@ -8,7 +8,7 @@ from textwrap import dedent
 from sqlalchemy.exc import ProgrammingError
 
 from data_utils.build_metadata import get_parser
-from data_utils.build_table import stage
+from data_utils.build_table import TableMeta
 from data_utils.database import load_env, connect
 
 
@@ -141,7 +141,7 @@ def main(args=None):
             continue
 
         # Stage and flush to database
-        tables_meta.append(stage(meta_path, conn))
+        tables_meta.append(TableMeta.stage(meta_path, conn))
         conn.flush()
 
     # Run transforms

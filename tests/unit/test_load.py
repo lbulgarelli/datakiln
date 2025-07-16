@@ -9,7 +9,7 @@ import pandas as pd
 from sqlalchemy import inspect
 
 from data_utils.test import test_session
-from data_utils.build_table import TableMeta, stage
+from data_utils.build_table import TableMeta
 
 
 TEST_JSON_PATH = Path("tests") / "metadata"
