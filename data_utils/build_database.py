@@ -100,7 +100,7 @@ def create_role(conn, database):
     try:
         conn.execute(dedent("""
         CREATE ROLE {database}
-        """)).format(database=database)
+        """).format(database=database))
     except ProgrammingError as error:
         message = f'role "{database}" already exists'
         if message in error._message():  # pylint: disable=protected-access
