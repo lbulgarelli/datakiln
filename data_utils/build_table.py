@@ -7,6 +7,7 @@ import csv
 import gzip
 import json
 import logging
+from hashlib import md5
 from pathlib import Path
 from textwrap import dedent
 from itertools import chain
@@ -651,7 +652,7 @@ class TableBase():
     _row_id = "meta_row_id"
 
     def __init__(self, name, schema, columns, na_values=None,
-                 encoding="utf-8", delimiter=","):
+                 encoding="utf-8", delimiter=",", hash=None):
         # pylint: disable=too-many-arguments, too-many-positional-arguments
         """
         :param name: Name of the table.
@@ -669,6 +670,12 @@ class TableBase():
         :param encoding: encoding of the data file.
         :type encoding: str
 
+        :param delimiter: Delimiter that separate values in data files.
+        :type delimiter: str
+
+        :param hash: Hash of metadata file.
+        :type hash: str
+
         :return: Base table metadata.
         :rtype: TableBase
         """
@@ -678,6 +685,7 @@ class TableBase():
         self.encoding = encoding
         self.delimiter = delimiter
         self.na_values = set(na_values or []) | STR_NA_VALUES
+        self.hash = hash
 
         # Instantiate metadata object for all columns
         for column in columns:
@@ -1211,11 +1219,16 @@ class TableMeta(TableBase):
         :return: None
         """
         # Load metadata
-        with open(meta_path, encoding="utf-8") as file:
-            meta_json = json.load(file)
+        with open(meta_path, "rb") as file:
+            content = b""
+            hash = md5()
+            for chunk in iter(lambda: file.read(4096), b""):
+                content += chunk
+                hash.update(chunk)
+            meta_json = json.loads(content.decode("utf-8"))
 
         # Create table
-        table_meta = TableMeta(**meta_json)
+        table_meta = TableMeta(hash=hash.hexdigest(), **meta_json)
         table_meta.create(conn)
 
         # Determine data file name
