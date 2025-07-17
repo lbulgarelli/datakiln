@@ -86,6 +86,30 @@ class Database():
                 return
             raise error
 
+    def create_metadata(self, conn):
+        """
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+        """
+        conn.execute("CREATE SCHEMA IF NOT EXISTS _metadata")
+        conn.execute(dedent("""
+        CREATE TABLE IF NOT EXISTS _metadata.table_(
+            schema_ TEXT
+          , table_ TEXT
+          , hash TEXT
+          , PRIMARY KEY (schema_, table_)
+        )
+        """))
+        conn.execute(dedent("""
+        CREATE TABLE IF NOT EXISTS _metadata.file_(
+            path TEXT
+          , schema_ TEXT
+          , table_ TEXT
+          , hash TEXT
+          , PRIMARY KEY (path)
+        )
+        """))
+
     @classmethod
     def load_env(cls, directory):
         """Load environment variables.

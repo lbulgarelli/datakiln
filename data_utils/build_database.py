@@ -59,8 +59,12 @@ def main(args=None):
     db_params = Database.load_env(directory)
     conn = Session.create(**db_params)
 
-    # Create role for database read access
+    # Create metadata
     database = Database(directory, db_params["database"])
+    database.create_metadata(conn)
+    conn.commit()
+
+    # Create role for database read access
     database.create_role(conn, db_params["database"])
     conn.commit()
 

@@ -131,7 +131,7 @@ class StageMeta(TableBase):
         """
         super().__init__(**kwargs)
 
-        self.schema = f"stg_{self.schema}"
+        self.schema = f"__{self.schema}"
 
         # Do not enforce types in stage
         for column in self.columns:
@@ -454,7 +454,7 @@ class TableMeta(TableBase):
 
         # Flag rows missing required columns
         stmt = dedent("""
-        UPDATE stg_{schema}.{name}
+        UPDATE __{schema}.{name}
         SET meta_log = 'Required'
         WHERE 1 = 1
         AND meta_log IS NULL
@@ -471,13 +471,13 @@ class TableMeta(TableBase):
         stmt = dedent("""
         WITH missing_fk AS (
           SELECT {name}.{row_id}
-          FROM stg_{schema}.{name}
+          from __{schema}.{name}
           {join_fks}
           WHERE {n_fks} > 0
           AND {name}.meta_log IS NULL
           {null_fks}
         )
-        UPDATE stg_{schema}.{name}
+        UPDATE __{schema}.{name}
         SET meta_log = 'Constraint violation (foreign key)'
         FROM missing_fk
         WHERE {name}.{row_id} = missing_fk.{row_id}
@@ -498,7 +498,7 @@ class TableMeta(TableBase):
         SELECT
             {typed}
           , {row_id}
-        FROM stg_{schema}.{name}
+        from __{schema}.{name}
         WHERE 1 = 1
         AND meta_log IS NULL
         ON CONFLICT DO NOTHING
@@ -511,7 +511,7 @@ class TableMeta(TableBase):
 
         # Deleted moved rows
         stmt = dedent("""
-        DELETE FROM stg_{schema}.{name}
+        DELETE from __{schema}.{name}
         USING {schema}.{name} moved
         WHERE {name}.meta_row_id = moved.meta_row_id
         """).format(
@@ -522,7 +522,7 @@ class TableMeta(TableBase):
         # Rows that still remain in staging but did not
         # get flagged before this point are PK duplicates
         stmt = dedent("""
-        UPDATE stg_{schema}.{name}
+        UPDATE __{schema}.{name}
         SET meta_log = 'Duplicate'
         WHERE 1 = 1
         AND meta_log IS NULL
@@ -533,7 +533,7 @@ class TableMeta(TableBase):
 
         # Warn of any remaining staged records
         count = conn.execute(dedent(f"""
-        SELECT COUNT(meta_row_id) FROM stg_{self.schema}.{self.name}
+        SELECT COUNT(meta_row_id) from __{self.schema}.{self.name}
         """)).first()[0]
         if count > 0:
             logging.warning(
