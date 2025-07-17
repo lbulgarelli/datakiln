@@ -617,7 +617,16 @@ class TableMeta(TableBase):
         # Determine path to data file(s)
         for artifact in data_repo.listdir("."):
             artifact_path = Path(data_dir / artifact["name"])
-            if str(artifact_path.stem) == meta_name:
+            suffix = "".join(artifact_path.suffixes)
+
+            # Get name of artifact without suffixes
+            if len(suffix) > 0:
+                artifact_name = str(artifact_path.name)[:-len(suffix)]
+            else:
+                artifact_name = artifact_path.name
+
+            # Match names
+            if artifact_name == meta_name:
                 break
         else:
             raise FileNotFoundError(
