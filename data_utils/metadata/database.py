@@ -107,6 +107,8 @@ class Database():
           , table_ TEXT
           , hash TEXT
           , PRIMARY KEY (path)
+          , FOREIGN KEY (schema_, table_)
+            REFERENCES _metadata (schema_, table_)
         )
         """))
 
