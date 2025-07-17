@@ -65,7 +65,7 @@ def main(args=None):
     conn.commit()
 
     # Create role for database read access
-    database.create_role(conn, db_params["database"])
+    database.create_role(conn)
     conn.commit()
 
     # Retrieve files to ignore
@@ -99,7 +99,7 @@ def main(args=None):
     execute_directory(directory / "derive", conn, ignore)
 
     # Grant read permissions on entire database
-    database.grant(conn, db_params["database"], args.grant)
+    database.grant(conn, args.grant)
 
     # Commit changes
     conn.commit()

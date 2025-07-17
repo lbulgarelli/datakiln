@@ -27,14 +27,11 @@ class Database():
         """
         self.name = name
 
-    def grant(self, conn, role, users=None):
+    def grant(self, conn, users=None):
         """Grants read on all objects in database.
 
         :param conn: SQLAlchemy connection or session.
         :type conn: sqlalchemy.Engine
-
-        :param role: Name of the role to grant permissions to.
-        :type role: str
         """
         # Iterates all schemas in database and grant
         # read permissions to database role
@@ -51,9 +48,9 @@ class Database():
             AND nspname NOT LIKE 'pg_toast%'
             AND nspname NOT LIKE 'pg_temp%'
         ) LOOP
-            EXECUTE format($$ GRANT USAGE ON SCHEMA %I TO {role} $$, schema);
-            EXECUTE format($$ GRANT SELECT ON ALL SEQUENCES IN SCHEMA %I TO {role} $$, schema);
-            EXECUTE format($$ GRANT SELECT ON ALL TABLES IN SCHEMA %I TO {role} $$, schema);
+            EXECUTE format($$ GRANT USAGE ON SCHEMA %I TO {self.name} $$, schema);
+            EXECUTE format($$ GRANT SELECT ON ALL SEQUENCES IN SCHEMA %I TO {self.name} $$, schema);
+            EXECUTE format($$ GRANT SELECT ON ALL TABLES IN SCHEMA %I TO {self.name} $$, schema);
         END LOOP;
         END;
         $do$;"""))  # noqa: E501
@@ -63,30 +60,28 @@ class Database():
             conn.execute(dedent("""
             GRANT {role} TO "{users}"
             """)).format(
-                role=role,
+                role=self.name,
                 users='", "'.join(users)
             )
 
-    def create_role(self, conn, database):
+    def create_role(self, conn):
         """Connect to database using SQLAlchemy.
 
         :param conn: SQLAlchemy connection or session.
         :type conn: sqlalchemy.Engine
-
-        :param database: Name of the database.
-        :type database: str
         """
         try:
             conn.execute(dedent("""
             CREATE ROLE {database}
-            """).format(database=database))
+            """).format(database=self.name))
         except ProgrammingError as error:
-            message = f'role "{database}" already exists'
+            message = f'role "{self.name}" already exists'
             if message in error._message():  # pylint: disable=protected-access
                 return
             raise error
 
-    def create_metadata(self, conn):
+    @classmethod
+    def create_metadata(cls, conn):
         """
         :param conn: SQLAlchemy connection or session.
         :type conn: sqlalchemy.Engine
