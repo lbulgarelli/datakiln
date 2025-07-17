@@ -15,6 +15,7 @@ from functools import partial
 from dataclasses import dataclass
 from collections import defaultdict
 
+from dvc.api import DVCFileSystem
 from pandas._libs.parsers import STR_NA_VALUES  # pylint: disable=no-name-in-module # noqa: E501
 
 from data_utils.build_metadata import get_parser
@@ -1231,21 +1232,26 @@ class TableMeta(TableBase):
         table_meta = TableMeta(hash=hash.hexdigest(), **meta_json)
         table_meta.create(conn)
 
-        # Determine data file name
+        # Instantiate DVC repository
         meta_name = re.sub(r"^\d\d-", "", meta_path.stem)
         data_dir = meta_path.parents[1] / "data"
+        data_repo = DVCFileSystem(data_dir)
+
+        # Determine path to data file(s)
+        for artifact in data_repo.listdir("."):
+            artifact_path = Path(data_dir / artifact["name"])
+            if str(artifact_path.stem) == meta_name:
+                break
+        else:
+            raise FileNotFoundError(
+                f"No files found for metadata: '{meta_name}'")
 
         # Determine whether we need to load
         # one or multiple files
-        if (table_dir := data_dir / meta_name).is_dir():
-            files = list(table_dir.iterdir())
+        if artifact_path.is_dir():
+            files = list(artifact_path.iterdir())
         else:
-            files = list(data_dir.glob(f"{meta_name}.*"))
-
-        # Generate error if not files are found
-        if not files:
-            raise FileNotFoundError(
-                f"No files found for metadata: '{meta_name}'")
+            files = [artifact_path]
 
         # Determine file type(s)
         for file in files:
