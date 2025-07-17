@@ -11,7 +11,7 @@ from sqlalchemy import inspect
 
 from data_utils.build_database import execute_directory
 from data_utils.build_table import TableMeta
-from data_utils.database import load_env, connect
+from data_utils.metadata.database import load_env, connect
 
 DIRECTORY = Path()
 

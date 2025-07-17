@@ -9,7 +9,7 @@ from sqlalchemy.exc import ProgrammingError
 
 from data_utils.build_metadata import get_parser
 from data_utils.build_table import TableMeta
-from data_utils.database import load_env, connect
+from data_utils.metadata.database import load_env, connect
 
 
 logging.basicConfig(

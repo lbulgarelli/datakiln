@@ -20,7 +20,7 @@ from pandas._libs.parsers import STR_NA_VALUES  # pylint: disable=no-name-in-mod
 
 from data_utils.build_metadata import get_parser
 from data_utils.io import open_excel
-from data_utils.database import load_env, connect
+from data_utils.metadata.database import load_env, connect
 
 
 logging.basicConfig(
