@@ -3,13 +3,10 @@ Creates table and loads data.
 """
 import logging
 from pathlib import Path
-from textwrap import dedent
-
-from sqlalchemy.exc import ProgrammingError
 
 from data_utils.build_metadata import get_parser
 from data_utils.build_table import TableMeta
-from data_utils.metadata.database import load_env, connect
+from data_utils.metadata.database import Database, Session
 
 
 logging.basicConfig(
@@ -47,67 +44,6 @@ def execute_directory(directory, conn, ignore):
         conn.flush()
 
 
-def grant(conn, role, users=None):
-    """Grants read on all objects in database.
-
-    :param conn: SQLAlchemy connection or session.
-    :type conn: sqlalchemy.Engine
-
-    :param role: Name of the role to grant permissions to.
-    :type role: str
-    """
-    # Iterates all schemas in database and grant
-    # read permissions to database role
-    conn.execute(dedent(f"""
-    DO $do$
-    DECLARE
-      schema TEXT;
-    BEGIN
-      FOR schema IN (
-        SELECT nspname
-        FROM pg_namespace
-        WHERE nspname NOT LIKE 'information_schema%'
-        AND nspname NOT LIKE 'pg_catalog%'
-        AND nspname NOT LIKE 'pg_toast%'
-        AND nspname NOT LIKE 'pg_temp%'
-      ) LOOP
-        EXECUTE format($$ GRANT USAGE ON SCHEMA %I TO {role} $$, schema);
-        EXECUTE format($$ GRANT SELECT ON ALL SEQUENCES IN SCHEMA %I TO {role} $$, schema);
-        EXECUTE format($$ GRANT SELECT ON ALL TABLES IN SCHEMA %I TO {role} $$, schema);
-      END LOOP;
-    END;
-    $do$;"""))  # noqa: E501
-
-    # Grant permissions to users by proxy of the database role
-    if users:
-        conn.execute(dedent("""
-        GRANT {role} TO "{users}"
-        """)).format(
-            role=role,
-            users='", "'.join(users)
-        )
-
-
-def create_role(conn, database):
-    """Connect to database using SQLAlchemy.
-
-    :param conn: SQLAlchemy connection or session.
-    :type conn: sqlalchemy.Engine
-
-    :param database: Name of the database.
-    :type database: str
-    """
-    try:
-        conn.execute(dedent("""
-        CREATE ROLE {database}
-        """).format(database=database))
-    except ProgrammingError as error:
-        message = f'role "{database}" already exists'
-        if message in error._message():  # pylint: disable=protected-access
-            return
-        raise error
-
-
 def main(args=None):
     """Creates table and loads data."""
     # Get arguments
@@ -120,11 +56,12 @@ def main(args=None):
     directory = Path(args.directory).absolute()
 
     # Connect to database
-    db_params = load_env(directory)
-    conn = connect(**db_params)
+    db_params = Database.load_env(directory)
+    conn = Session.create(**db_params)
 
     # Create role for database read access
-    create_role(conn, db_params["database"])
+    database = Database(directory, db_params["database"])
+    database.create_role(conn, db_params["database"])
     conn.commit()
 
     # Retrieve files to ignore
@@ -158,7 +95,7 @@ def main(args=None):
     execute_directory(directory / "derive", conn, ignore)
 
     # Grant read permissions on entire database
-    grant(conn, db_params["database"], args.grant)
+    database.grant(conn, db_params["database"], args.grant)
 
     # Commit changes
     conn.commit()

@@ -4,7 +4,7 @@ Creates table and loads data.
 from pathlib import Path
 
 from data_utils.build_metadata import get_parser
-from data_utils.metadata.database import load_env, connect
+from data_utils.metadata.database import Session
 from data_utils.metadata.table import TableMeta
 
 
@@ -18,8 +18,8 @@ def main(args=None):
     meta_path = Path(args.directory).absolute()
 
     # Connect to database
-    db_params = load_env(meta_path.parents[1])
-    conn = connect(**db_params)
+    db_params = Session.load_env(meta_path.parents[1])
+    conn = Session.create(**db_params)
 
     # Load to final schema and commit changes
     table_meta = TableMeta.stage(meta_path, conn)

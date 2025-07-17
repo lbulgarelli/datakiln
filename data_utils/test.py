@@ -11,7 +11,7 @@ from sqlalchemy import inspect
 
 from data_utils.build_database import execute_directory
 from data_utils.build_table import TableMeta
-from data_utils.metadata.database import load_env, connect
+from data_utils.metadata.database import Database, Session
 
 DIRECTORY = Path()
 
@@ -20,8 +20,8 @@ DIRECTORY = Path()
 def test_session():
     """Get database session"""
     # Yield session
-    db_params = load_env(os.getcwd())
-    session = connect(**db_params)
+    db_params = Database.load_env(os.getcwd())
+    session = Session.create(**db_params)
     yield session
 
     # Do not save test changes
