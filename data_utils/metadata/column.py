@@ -66,7 +66,7 @@ class ColumnMeta():
         :return: None
         """
         stmt = dedent("""
-        UPDATE __{schema}.{table}
+        UPDATE _{schema}.{table}
         SET {name} = NULL
         WHERE {name} IN (
             '{na_values}'
