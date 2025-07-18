@@ -34,7 +34,7 @@ class TestBuild():
     database = DatabaseMeta(DIRECTORY, "__test")
 
     dependencies = []
-    dependencies_dir = (DIRECTORY / "dependencies")
+    dependencies_dir = DIRECTORY / "dependencies"
     for dependency in dependencies_dir.glob("data-*"):
         dependencies.append(DatabaseMeta(dependency, "__test"))
 
