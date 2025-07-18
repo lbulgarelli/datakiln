@@ -109,4 +109,3 @@ class ForeignKeyMeta():
             conditions.append(f"AND {self.reference.table}.{column} IS NULL")
 
         return conditions
-
