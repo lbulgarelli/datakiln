@@ -185,7 +185,7 @@ class StageMeta(TableBase):
 
             # Stage data
             logging.info("Table '%s'.'%s': Staging file '%s'.",
-                         self.schema[4:], self.name, file.name)
+                         self.schema[1:], self.name, file.name)
 
             # Get header from file
             suffix = "".join(data_path.suffixes)

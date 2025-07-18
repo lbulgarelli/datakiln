@@ -25,6 +25,9 @@ logging.basicConfig(
 
 class DatabaseMeta():
     """Database metadata."""
+
+    schema = "__metadata"
+
     def __init__(self, directory, name):
         """
         :param directory: Path for metadata directory.
@@ -146,24 +149,24 @@ class DatabaseMeta():
         :param conn: SQLAlchemy connection or session.
         :type conn: sqlalchemy.Engine
         """
-        conn.execute("CREATE SCHEMA IF NOT EXISTS _metadata")
-        conn.execute(dedent("""
-        CREATE TABLE IF NOT EXISTS _metadata.table_(
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {cls.schema}")
+        conn.execute(dedent(f"""
+        CREATE TABLE IF NOT EXISTS {cls.schema}.table_(
             schema_ TEXT
           , table_ TEXT
           , hash TEXT
           , PRIMARY KEY (schema_, table_)
         )
         """))
-        conn.execute(dedent("""
-        CREATE TABLE IF NOT EXISTS _metadata.file_(
+        conn.execute(dedent(f"""
+        CREATE TABLE IF NOT EXISTS {cls.schema}.file_(
             path TEXT
           , schema_ TEXT
           , table_ TEXT
           , hash TEXT
           , PRIMARY KEY (path)
           , FOREIGN KEY (schema_, table_)
-            REFERENCES _metadata (schema_, table_)
+            REFERENCES {cls.schema}.table_ (schema_, table_)
         )
         """))
 
