@@ -616,7 +616,7 @@ class TableMeta(TableBase):
         # Load json
         with open(meta_path, "rb") as file:
             content = b""
-            meta_hash = md5()
+            meta_hash = md5()  # noqa: DUO130
             for chunk in iter(lambda: file.read(4096), b""):
                 content += chunk
                 meta_hash.update(chunk)
