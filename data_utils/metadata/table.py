@@ -642,5 +642,5 @@ class TableMeta(TableBase):
                 f"No files found for metadata: '{meta_name}'")
 
         return TableMeta(
-            artifact=artifact, hash=meta_hash.hexdigest(),
+            artifact=artifact, checksum=meta_hash.hexdigest(),
             **meta_json)
