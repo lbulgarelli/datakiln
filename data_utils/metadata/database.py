@@ -10,7 +10,7 @@ import sqlparse
 from dvc.api import DVCFileSystem
 from sqlparse.sql import Statement, Identifier
 from sqlalchemy.orm.session import Session as SQLAlchemySession
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.exc import ProgrammingError
 from decouple import Config, RepositoryEnv, config
 from sqlalchemy_utils import create_database, database_exists
@@ -154,9 +154,13 @@ class DatabaseMeta():
         :param conn: SQLAlchemy connection or session.
         :type conn: sqlalchemy.Engine
         """
-        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {cls.schema}")
+        inspector = inspect(conn.bind.engine)
+        if cls.schema in inspector.get_schema_names():
+            return
+
+        conn.execute(f"CREATE SCHEMA {cls.schema}")
         conn.execute(dedent(f"""
-        CREATE TABLE IF NOT EXISTS {cls.schema}.table_(
+        CREATE TABLE {cls.schema}.table_(
             schema_ TEXT
           , table_ TEXT
           , hash TEXT
@@ -164,7 +168,7 @@ class DatabaseMeta():
         )
         """))
         conn.execute(dedent(f"""
-        CREATE TABLE IF NOT EXISTS {cls.schema}.file_(
+        CREATE TABLE {cls.schema}.file_(
             path TEXT
           , schema_ TEXT
           , table_ TEXT
