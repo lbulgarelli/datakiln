@@ -196,7 +196,7 @@ class StageMeta(TableBase):
             # To load the data, we need to order
             # the column list according to the file
             columns = filter(lambda c: not c.transform, self.columns)
-            columns = sorted(columns, key=lambda c: header.index(c.name))
+            columns = sorted(columns, key=lambda c: header.index(c.name))  # pylint: disable=cell-var-from-loop # noqa: E501
 
             # Generate statement
             stmt = dedent("""
