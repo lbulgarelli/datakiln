@@ -1,3 +1,6 @@
+"""
+File system location metadata.
+"""
 import re
 import logging
 from pathlib import Path

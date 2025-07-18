@@ -1,3 +1,6 @@
+"""
+Unpivot metadata.
+"""
 import re
 from textwrap import dedent
 from collections import defaultdict

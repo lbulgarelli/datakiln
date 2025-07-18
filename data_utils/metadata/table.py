@@ -1,3 +1,6 @@
+"""
+Table metadata.
+"""
 import re
 import csv
 import json

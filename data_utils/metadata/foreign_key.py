@@ -1,3 +1,6 @@
+"""
+Foreign key metadata.
+"""
 from textwrap import dedent
 
 from dataclasses import dataclass

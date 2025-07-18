@@ -1,3 +1,6 @@
+"""
+Column metadata.
+"""
 from textwrap import dedent
 
 

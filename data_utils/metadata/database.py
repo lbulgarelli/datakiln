@@ -1,5 +1,5 @@
 """
-Database-related helpers.
+Database metadata.
 """
 import logging
 from pathlib import Path
