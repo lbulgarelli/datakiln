@@ -16,7 +16,7 @@ from sqlalchemy import MetaData, URL
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.dialects import registry
 
-from data_utils.metadata.database import load_env, connect
+from data_utils.metadata.database import DatabaseMeta, Session
 from data_utils.build_metadata import get_parser
 
 logging.basicConfig(
@@ -132,8 +132,8 @@ def retrieve_cohort(conn, directory, cohort):
     # If a table is specified, we copy it over
     if not cohort.endswith(".sql"):
         # Connect to source (build) database
-        db_params = load_env(directory)
-        source_conn = connect(**db_params).bind.engine
+        db_params = DatabaseMeta.load_env(directory)
+        source_conn = Session.create(**db_params).bind.engine
         schema, table = cohort.split(".")
 
         # Retrieve data types
@@ -527,7 +527,7 @@ def main(args=None):
         return
 
     # Get target database params
-    db_params = load_env(directory)
+    db_params = DatabaseMeta.load_env(directory)
 
     for schema, tables in data.items():
         # Retrieve metadata from DBMS

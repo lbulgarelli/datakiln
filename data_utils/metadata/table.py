@@ -1,7 +1,7 @@
 import re
 import csv
-import gzip
 import json
+import gzip
 import logging
 from hashlib import md5
 from pathlib import Path
@@ -9,7 +9,6 @@ from textwrap import dedent
 from itertools import chain
 from functools import partial
 
-from dvc.api import DVCFileSystem
 from pandas._libs.parsers import STR_NA_VALUES  # pylint: disable=no-name-in-module # noqa: E501
 
 from data_utils.io import open_excel
@@ -30,8 +29,9 @@ class TableBase():
     _row_id = "meta_row_id"
 
     def __init__(self, name, schema, columns, na_values=None,
-                 encoding="utf-8", delimiter=",", hash=None):
-        # pylint: disable=too-many-arguments, too-many-positional-arguments
+                 encoding="utf-8", delimiter=",", hash=None,
+                 artifact=None):
+        # pylint: disable=too-many-arguments
         """
         :param name: Name of the table.
         :type name: str
@@ -64,6 +64,7 @@ class TableBase():
         self.delimiter = delimiter
         self.na_values = set(na_values or []) | STR_NA_VALUES
         self.hash = hash
+        self.artifact = artifact
 
         # Instantiate metadata object for all columns
         for column in columns:
@@ -157,48 +158,63 @@ class StageMeta(TableBase):
         CREATE INDEX ON {self.schema}.{self.name} (meta_log)
         """))
 
-    def load(self, conn, data_path):
-        """Stage data from a file.
+    def load(self, conn):
+        """Stage data.
 
         :param conn: SQLAlchemy connection or session.
         :type conn: sqlalchemy.Engine
 
-        :param data_path: Path to file.
-        :type data_path: str
-
         :return: None
         """
-        logging.info("Table '%s'.'%s': Staging file '%s'.", self.schema[4:],
-                     self.name, data_path.name)
+        repo_dir = self.artifact["repo"].root_dir
+        data_path = Path(repo_dir) / self.artifact["name"]
 
-        # Get header from file
-        suffix = "".join(data_path.suffixes)
-        reader = self._readers[suffix]
-        buffer = reader(data_path, encoding=self.encoding)
-        header = next(csv.reader(buffer, delimiter=self.delimiter))
+        # Determine whether we need to load
+        # one or multiple files
+        if data_path.is_dir():
+            files = list(data_path.iterdir())
+        else:
+            files = [data_path]
 
-        # To load the data, we need to order
-        # the column list according to the file
-        columns = filter(lambda c: not c.transform, self.columns)
-        columns = sorted(columns, key=lambda c: header.index(c.name))
+        # Determine file type(s)
+        for file in files:
+            suffix = "".join(file.suffixes)
+            if suffix not in StageMeta._readers:  # pylint: disable=protected-access # noqa: E501
+                continue
+            data_path = file.absolute()
 
-        # Generate statement
-        stmt = dedent("""
-        COPY {schema}.{name} (
-            {columns}
-        )
-        FROM STDIN
-        WITH (FORMAT CSV, DELIMITER E'{delimiter}')
-        """).format(
-            name=self.name, schema=self.schema,
-            columns='\n  , '.join(map(str, columns)),
-            delimiter=self.delimiter
-        )
+            # Stage data
+            logging.info("Table '%s'.'%s': Staging file '%s'.",
+                         self.schema[4:], self.name, file.name)
 
-        # Execute and copy from file
-        cursor = conn.connection().connection.cursor()
-        cursor.copy_expert(stmt, buffer)
-        buffer.close()
+            # Get header from file
+            suffix = "".join(data_path.suffixes)
+            reader = self._readers[suffix]
+            buffer = reader(data_path, encoding=self.encoding)
+            header = next(csv.reader(buffer, delimiter=self.delimiter))
+
+            # To load the data, we need to order
+            # the column list according to the file
+            columns = filter(lambda c: not c.transform, self.columns)
+            columns = sorted(columns, key=lambda c: header.index(c.name))
+
+            # Generate statement
+            stmt = dedent("""
+            COPY {schema}.{name} (
+                {columns}
+            )
+            FROM STDIN
+            WITH (FORMAT CSV, DELIMITER E'{delimiter}')
+            """).format(
+                name=self.name, schema=self.schema,
+                columns='\n  , '.join(map(str, columns)),
+                delimiter=self.delimiter
+            )
+
+            # Execute and copy from file
+            cursor = conn.connection().connection.cursor()
+            cursor.copy_expert(stmt, buffer)
+            buffer.close()
 
 
 class TableMeta(TableBase):
@@ -255,7 +271,8 @@ class TableMeta(TableBase):
         stage_meta = StageMeta(
             name=self.name, schema=self.schema,
             encoding=self.encoding, delimiter=self.delimiter,
-            columns=list(map(dict, self.columns)))
+            columns=list(map(dict, self.columns)),
+            artifact=self.artifact)
 
         return stage_meta
 
@@ -585,8 +602,8 @@ class TableMeta(TableBase):
         return list(ordered)
 
     @classmethod
-    def stage(cls, meta_path, conn):
-        """Load metadata and stage data.
+    def from_json(cls, meta_path, data_repo):
+        """Load metadata.
 
         :param meta_path: Path to the metadata
         :type meta_path: str
@@ -596,7 +613,7 @@ class TableMeta(TableBase):
 
         :return: None
         """
-        # Load metadata
+        # Load json
         with open(meta_path, "rb") as file:
             content = b""
             meta_hash = md5()
@@ -604,19 +621,11 @@ class TableMeta(TableBase):
                 content += chunk
                 meta_hash.update(chunk)
             meta_json = json.loads(content.decode("utf-8"))
-
-        # Create table
-        table_meta = TableMeta(hash=meta_hash.hexdigest(), **meta_json)
-        table_meta.create(conn)
-
-        # Instantiate DVC repository
         meta_name = re.sub(r"^\d\d-", "", meta_path.stem)
-        data_dir = meta_path.parents[1] / "data"
-        data_repo = DVCFileSystem(data_dir)
 
         # Determine path to data file(s)
-        for artifact in data_repo.listdir("."):
-            artifact_path = Path(data_dir / artifact["name"])
+        for artifact in data_repo.listdir(".", dvc_only=True):
+            artifact_path = Path(artifact["name"])
             suffix = "".join(artifact_path.suffixes)
 
             # Get name of artifact without suffixes
@@ -632,21 +641,6 @@ class TableMeta(TableBase):
             raise FileNotFoundError(
                 f"No files found for metadata: '{meta_name}'")
 
-        # Determine whether we need to load
-        # one or multiple files
-        if artifact_path.is_dir():
-            files = list(artifact_path.iterdir())
-        else:
-            files = [artifact_path]
-
-        # Determine file type(s)
-        for file in files:
-            suffix = "".join(file.suffixes)
-            if suffix not in StageMeta._readers:  # pylint: disable=protected-access # noqa: E501
-                continue
-            data_path = file.absolute()
-
-            # Stage data
-            table_meta.stage_meta.load(conn, data_path)
-
-        return table_meta
+        return TableMeta(
+            artifact=artifact, hash=meta_hash.hexdigest(),
+            **meta_json)

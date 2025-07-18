@@ -1,21 +1,29 @@
 """
 Database-related helpers.
 """
+import logging
 from pathlib import Path
 from getpass import getuser
 from textwrap import dedent
 
 import sqlparse
+from dvc.api import DVCFileSystem
 from sqlparse.sql import Statement, Identifier
 from sqlalchemy.orm.session import Session as SQLAlchemySession
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import ProgrammingError
 from decouple import Config, RepositoryEnv, config
-
 from sqlalchemy_utils import create_database, database_exists
 
+from data_utils.metadata.table import TableMeta
 
-class Database():
+
+logging.basicConfig(
+    level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S",
+    format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s")
+
+
+class DatabaseMeta():
     """Database metadata."""
     def __init__(self, directory, name):
         """
@@ -25,7 +33,29 @@ class Database():
         :param name: Name of the database.
         :type name: str
         """
+        self.directory = Path(directory)
         self.name = name
+
+        # Retrieve files to ignore
+        self.ignore = []
+        if (path := self.directory / ".dataignore").exists():
+            with path.open("r", encoding="utf-8") as file:
+                self.ignore = file.read().splitlines()
+
+    @property
+    def tables(self):
+        # Load DVC repository
+        data_repo = DVCFileSystem(self.directory / "data")
+
+        # Retrieve table metadata
+        tables = []
+        for meta_path in sorted((self.directory / "metadata").glob("*.json")):
+            meta_relative = meta_path.relative_to(self.directory)
+            if str(meta_relative) in self.ignore:
+                continue
+
+            tables.append(TableMeta.from_json(meta_path, data_repo))
+        return tables
 
     def grant(self, conn, users=None):
         """Grants read on all objects in database.
@@ -79,6 +109,36 @@ class Database():
             if message in error._message():  # pylint: disable=protected-access
                 return
             raise error
+
+    def execute_directory(self, directory, conn):
+        """Executes SQL scripts in a given directory.
+
+        :param directory: Path for metadata directory.
+        :type directory: str
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :param ignore: List of files to ignore.
+        :type ignore: str
+        """
+        subdirectory = self.directory / directory
+        for file_name in sorted(subdirectory.glob("**/*.sql")):
+            file_relative = file_name.relative_to(self.directory)
+            if str(file_relative) in self.ignore:
+                continue
+            logging.info("Script '%s': RUNNING",
+                         file_name.relative_to(self.directory))
+
+            # Load file
+            with open(file_name, "r", encoding="utf-8") as file:
+                sql = file.read()
+
+            # Execute query
+            conn.execute(sql)
+
+            # Flush to database
+            conn.flush()
 
     @classmethod
     def create_metadata(cls, conn):
