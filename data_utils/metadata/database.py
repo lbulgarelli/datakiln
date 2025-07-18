@@ -47,6 +47,11 @@ class DatabaseMeta():
 
     @property
     def tables(self):
+        """Retrieve database tables.
+
+        :return: Table metadata.
+        :rtype: data_utils.metadata.table.TableMeta
+        """
         # Load DVC repository
         data_repo = DVCFileSystem(self.directory / "data")
 
