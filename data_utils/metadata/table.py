@@ -29,7 +29,7 @@ class TableBase():
     _row_id = "meta_row_id"
 
     def __init__(self, name, schema, columns, na_values=None,
-                 encoding="utf-8", delimiter=",", hash=None,
+                 encoding="utf-8", delimiter=",", checksum=None,
                  artifact=None):
         # pylint: disable=too-many-arguments
         """
@@ -63,7 +63,7 @@ class TableBase():
         self.encoding = encoding
         self.delimiter = delimiter
         self.na_values = set(na_values or []) | STR_NA_VALUES
-        self.hash = hash
+        self.checksum = checksum
         self.artifact = artifact
 
         # Instantiate metadata object for all columns
