@@ -154,7 +154,7 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
                         primary_key="meta_row_id",
                         schema_name="",
                         encoding="utf-8"):
-    # pylint: disable=too-many-arguments
+    # pylint: disable=too-many-arguments, too-many-positional-arguments
     """Generate table metadata from redcap.
 
     :param form_name: Name of the redcap form.
@@ -214,7 +214,7 @@ def generate_table_meta(form_name, form_meta, is_data_empty,
 
 def generate_table_data(project, form_name, form_meta,
                         subject_id, event_id, na_values=None):
-    # pylint: disable=too-many-locals, too-many-arguments
+    # pylint: disable=too-many-locals, too-many-arguments, too-many-positional-arguments # noqa: E501
     """Retrieve table data from redcap.
 
     :param project: PyCap project.
