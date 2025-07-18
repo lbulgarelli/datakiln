@@ -21,11 +21,16 @@ def main(args=None):
     db_params = Session.load_env(meta_path.parents[1])
     conn = Session.create(**db_params)
 
+    # Stage and flush to database
+    table = TableMeta.from_json(meta_path, conn)
+    table.create(conn)
+    table.stage_meta.load(conn)
+    conn.flush()
+
     # Load to final schema and commit changes
-    table_meta = TableMeta.stage(meta_path, conn)
-    table_meta.enforce_constraints(conn)
-    table_meta.load(conn)
-    table_meta.create_indexes(conn)
+    table.enforce_constraints(conn)
+    table.load(conn)
+    table.create_indexes(conn)
     conn.commit()
 
     # Close connection
