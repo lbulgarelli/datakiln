@@ -6,7 +6,7 @@ class ColumnMeta():
 
     def __init__(self, name, dtype, description=None, required=False,
                  rename=None, transform=False):
-        # pylint: disable=too-many-arguments, too-many-positional-arguments
+        # pylint: disable=too-many-arguments
         """
         :param name: Name of the column.
         :type name: str

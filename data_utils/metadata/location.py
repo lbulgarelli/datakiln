@@ -18,7 +18,7 @@ class LFSLocation(ColumnMeta):
     def __init__(self, folder, regex, match,
                  default_values=None, match_map=None,
                  **kwargs):
-        # pylint: disable=too-many-arguments, too-many-positional-arguments
+        # pylint: disable=too-many-arguments
         """
         :param folder: Directory path to search for files.
         :type folder: str
