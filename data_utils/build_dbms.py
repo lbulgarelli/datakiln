@@ -340,7 +340,7 @@ def generate_filter(conn, columns, reference, cohort=None, join=None):
 
 
 def generate_table_data(conn, data, schema, table, filters, export=True):
-    # pylint: disable=too-many-arguments, too-many-positional-arguments
+    # pylint: disable=too-many-arguments
     """Generate table metadata from DBMS.
 
     :param conn: SQLAlchemy connection or session.
