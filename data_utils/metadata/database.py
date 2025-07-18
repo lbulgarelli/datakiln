@@ -229,7 +229,7 @@ class Session(SQLAlchemySession):
 
     @classmethod
     def create(cls, user, host, port, database, dialect):
-        # pylint: disable=too-many-arguments
+        # pylint: disable=too-many-arguments, too-many-positional-arguments
         """Connect to database using SQLAlchemy.
 
         :param user: Name of the database user.

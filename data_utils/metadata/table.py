@@ -28,13 +28,13 @@ logging.basicConfig(
 
 class TableBase():
     """Base metadata for table."""
-    # pylint: disable=too-few-public-methods
+    # pylint: disable=too-few-public-methods, too-many-instance-attributes
     _row_id = "meta_row_id"
 
     def __init__(self, name, schema, columns, na_values=None,
                  encoding="utf-8", delimiter=",", checksum=None,
                  artifact=None):
-        # pylint: disable=too-many-arguments
+        # pylint: disable=too-many-arguments, too-many-positional-arguments
         """
         :param name: Name of the table.
         :type name: str
