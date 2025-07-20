@@ -10,12 +10,13 @@ import sqlparse
 from dvc.api import DVCFileSystem
 from sqlparse.sql import Statement, Identifier
 from sqlalchemy.orm.session import Session as SQLAlchemySession
-from sqlalchemy import create_engine, text, inspect
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.schema import CreateSchema
 from decouple import Config, RepositoryEnv, config
 from sqlalchemy_utils import create_database, database_exists
 
-from data_utils.metadata.table import TableMeta
+from data_utils.metadata.table import TableMeta, Base
 
 
 logging.basicConfig(
@@ -25,8 +26,6 @@ logging.basicConfig(
 
 class DatabaseMeta():
     """Database metadata."""
-
-    schema = "__metadata"
 
     def __init__(self, directory, name):
         """
@@ -149,35 +148,17 @@ class DatabaseMeta():
             conn.flush()
 
     @classmethod
-    def create_metadata(cls, conn):
+    def create_metadata(cls, session):
         """
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
         """
-        inspector = inspect(conn.bind.engine)
-        if cls.schema in inspector.get_schema_names():
-            return
-
-        conn.execute(f"CREATE SCHEMA {cls.schema}")
-        conn.execute(dedent(f"""
-        CREATE TABLE {cls.schema}.table_(
-            schema_ TEXT
-          , table_ TEXT
-          , hash TEXT
-          , PRIMARY KEY (schema_, table_)
-        )
-        """))
-        conn.execute(dedent(f"""
-        CREATE TABLE {cls.schema}.file_(
-            path TEXT
-          , schema_ TEXT
-          , table_ TEXT
-          , hash TEXT
-          , PRIMARY KEY (path)
-          , FOREIGN KEY (schema_, table_)
-            REFERENCES {cls.schema}.table_ (schema_, table_)
-        )
-        """))
+        engine = session.get_bind().engine
+        with engine.connect() as conn:
+            schema = CreateSchema(Base.metadata.schema, if_not_exists=True)
+            conn.execute(schema)
+            Base.metadata.create_all(conn, checkfirst=True)
+            conn.commit()
 
     @classmethod
     def load_env(cls, directory):
@@ -215,12 +196,21 @@ class Session(SQLAlchemySession):
     def _is_identifier(self, token):
         return isinstance(token, Identifier) and token.value != 'MATERIALIZED'
 
-    def execute(self, statement):
-        """Executes a SQL statement construct and returns a CursorResult.
+    def execute(self, statement, **kwargs):
+        r"""Executes a SQL statement construct and returns a CursorResult.
 
         :param statement: Statement to be executed.
         :type statement: str
+
+        :param statement: Statement to be executed.
+        :type statement: str
+
+        :param \**kwargs: SQLAlchemy.execute parameters.
+        :type \**kwargs: dict
         """
+        if not isinstance(statement, str):
+            return super().execute(statement, **kwargs)
+
         parsed = sqlparse.parse(statement)
         stmt_types = list(map(Statement.get_type, parsed))
         if len(parsed) > 1 and stmt_types != ["DROP", "CREATE"]:
@@ -234,7 +224,7 @@ class Session(SQLAlchemySession):
             if id_drop.value != id_create.value:
                 raise ValueError("DROP/CREATE have distinct identifiers.")
 
-        return super().execute(text(statement))
+        return super().execute(text(statement), **kwargs)
 
     @classmethod
     def create(cls, user, host, port, database, dialect):

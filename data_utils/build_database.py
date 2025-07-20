@@ -26,41 +26,41 @@ def main(args=None):
 
     # Connect to database
     db_params = DatabaseMeta.load_env(directory)
-    conn = Session.create(**db_params)
+    session = Session.create(**db_params)
 
     # Create metadata
     database = DatabaseMeta(directory, db_params["database"])
-    database.create_metadata(conn)
-    conn.commit()
+    database.create_metadata(session)
 
     # Create role for database read access
-    database.create_role(conn)
-    conn.commit()
+    database.create_role(session)
+    session.commit()
 
     # Stage and flush to database
     for table in database.tables:
-        table.create(conn)
-        table.stage_meta.load(conn)
-        conn.flush()
+        table.create(session)
+        table.stage_meta.load(session)
+        session.flush()
 
     # Run transforms
-    database.execute_directory("transform", conn)
+    database.execute_directory("transform", session)
 
     # Load to final schema and flush to database
     for table in database.tables:
-        table.enforce_constraints(conn)
-        table.load(conn)
-        table.create_indexes(conn)
-        conn.flush()
+        table.enforce_constraints(session)
+        table.load(session)
+        table.create_indexes(session)
+        table.create_metadata(session)
+        session.flush()
 
     # Run views
-    database.execute_directory("derive", conn)
+    database.execute_directory("derive", session)
 
     # Grant read permissions on entire database
-    database.grant(conn, args.grant)
+    database.grant(session, args.grant)
 
     # Commit changes
-    conn.commit()
+    session.commit()
 
 
 if __name__ == "__main__":

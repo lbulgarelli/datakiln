@@ -13,6 +13,13 @@ from itertools import chain
 from functools import partial
 
 from pandas._libs.parsers import STR_NA_VALUES  # pylint: disable=no-name-in-module # noqa: E501
+from sqlalchemy import MetaData as SQLAlchemyMetadata
+from sqlalchemy import ForeignKeyConstraint
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    mapped_column,
+)
 
 from data_utils.io import open_excel
 from data_utils.metadata.column import ColumnMeta
@@ -24,6 +31,40 @@ from data_utils.metadata.unpivot import UnpivotMeta
 logging.basicConfig(
     level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S",
     format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s")
+
+
+class Base(DeclarativeBase):
+    """
+    Base ORM Class.
+    """
+    metadata = SQLAlchemyMetadata(schema="__metadata")
+
+
+class Metadata(Base):
+    """
+    Base metadata.
+    """
+    __tablename__ = "table_"
+
+    schema_: Mapped[str] = mapped_column(primary_key=True)
+    table_: Mapped[str] = mapped_column(primary_key=True)
+    checksum_: Mapped[str] = mapped_column()
+
+
+class File(Base):
+    """
+    File metadata.
+    """
+    __tablename__ = "file_"
+
+    path_: Mapped[str] = mapped_column(primary_key=True)
+    schema_: Mapped[str] = mapped_column()
+    table_: Mapped[str] = mapped_column()
+    checksum_: Mapped[str] = mapped_column()
+    ForeignKeyConstraint(
+        ["table_", "schema_"],
+        ["table_.table_", "table_.schema_"]
+    )
 
 
 class TableBase():
@@ -570,6 +611,16 @@ class TableMeta(TableBase):
             self.lfs_location.add_column(conn, table=self)
             # Find all files in specified bucket/folder and join them to table
             self.lfs_location.find(conn, table=self)
+
+    def create_metadata(self, session):
+        """
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
+        """
+        meta = Metadata(
+            schema_=self.schema, table_=self.name, checksum_=self.checksum)
+        session.merge(meta)
+        session.flush()
 
     @classmethod
     def order_columns(cls, columns, order):
