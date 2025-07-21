@@ -51,11 +51,11 @@ class Metadata(Base):
     checksum_: Mapped[str] = mapped_column()
 
 
-class File(Base):
+class Artifact(Base):
     """
-    File metadata.
+    Artifact metadata.
     """
-    __tablename__ = "file_"
+    __tablename__ = "artifact_"
 
     path_: Mapped[str] = mapped_column(primary_key=True)
     schema_: Mapped[str] = mapped_column()
@@ -617,9 +617,21 @@ class TableMeta(TableBase):
         :param session: Database Session.
         :type session: data_utils.metadata.database.Session
         """
+        # Table metadata
         meta = Metadata(
             schema_=self.schema, table_=self.name, checksum_=self.checksum)
         session.merge(meta)
+
+        # Artifact metadata
+        repo_dir = Path(self.artifact["repo"].root_dir)
+        data_path = Path(repo_dir.name) / self.artifact["name"]
+        artifact = Artifact(
+            path_=str(data_path),
+            schema_=self.schema, table_=self.name,
+            checksum_=self.artifact["md5"])
+        session.merge(artifact)
+
+        # Flush to database
         session.flush()
 
     @classmethod
