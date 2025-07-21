@@ -6,6 +6,7 @@ import csv
 import json
 import gzip
 import logging
+from typing import List
 from hashlib import md5
 from pathlib import Path
 from textwrap import dedent
@@ -19,6 +20,7 @@ from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
     mapped_column,
+    relationship
 )
 
 from data_utils.io import open_excel
@@ -50,6 +52,8 @@ class Metadata(Base):
     table_: Mapped[str] = mapped_column(primary_key=True)
     checksum_: Mapped[str] = mapped_column()
 
+    artifact: Mapped["Artifact"] = relationship(back_populates="table")
+
 
 class Artifact(Base):
     """
@@ -61,10 +65,15 @@ class Artifact(Base):
     schema_: Mapped[str] = mapped_column()
     table_: Mapped[str] = mapped_column()
     checksum_: Mapped[str] = mapped_column()
-    ForeignKeyConstraint(
-        ["table_", "schema_"],
-        ["table_.table_", "table_.schema_"]
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["table_", "schema_"],
+            ["table_.table_", "table_.schema_"]
+        ),
     )
+
+    table: Mapped["Metadata"] = relationship(back_populates="artifact")
 
 
 class TableBase():
