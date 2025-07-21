@@ -196,7 +196,7 @@ class Session(SQLAlchemySession):
     def _is_identifier(self, token):
         return isinstance(token, Identifier) and token.value != 'MATERIALIZED'
 
-    def execute(self, statement, **kwargs):
+    def execute(self, statement, *args, **kwargs):
         r"""Executes a SQL statement construct and returns a CursorResult.
 
         :param statement: Statement to be executed.
@@ -209,7 +209,7 @@ class Session(SQLAlchemySession):
         :type \**kwargs: dict
         """
         if not isinstance(statement, str):
-            return super().execute(statement, **kwargs)
+            return super().execute(statement, *args, **kwargs)
 
         parsed = sqlparse.parse(statement)
         stmt_types = list(map(Statement.get_type, parsed))
@@ -224,7 +224,7 @@ class Session(SQLAlchemySession):
             if id_drop.value != id_create.value:
                 raise ValueError("DROP/CREATE have distinct identifiers.")
 
-        return super().execute(text(statement), **kwargs)
+        return super().execute(text(statement), *args, **kwargs)
 
     @classmethod
     def create(cls, user, host, port, database, dialect):

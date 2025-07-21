@@ -6,7 +6,6 @@ import csv
 import json
 import gzip
 import logging
-from typing import List
 from hashlib import md5
 from pathlib import Path
 from textwrap import dedent
@@ -15,7 +14,7 @@ from functools import partial
 
 from pandas._libs.parsers import STR_NA_VALUES  # pylint: disable=no-name-in-module # noqa: E501
 from sqlalchemy import MetaData as SQLAlchemyMetadata
-from sqlalchemy import ForeignKeyConstraint
+from sqlalchemy import ForeignKeyConstraint, select
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -36,6 +35,7 @@ logging.basicConfig(
 
 
 class Base(DeclarativeBase):
+    # pylint: disable=too-few-public-methods
     """
     Base ORM Class.
     """
@@ -43,6 +43,7 @@ class Base(DeclarativeBase):
 
 
 class Metadata(Base):
+    # pylint: disable=too-few-public-methods
     """
     Base metadata.
     """
@@ -56,6 +57,7 @@ class Metadata(Base):
 
 
 class Artifact(Base):
+    # pylint: disable=too-few-public-methods
     """
     Artifact metadata.
     """
@@ -642,6 +644,23 @@ class TableMeta(TableBase):
 
         # Flush to database
         session.flush()
+
+    def is_updated(self, session):
+        """
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
+        """
+        stmt = select(Metadata).where(
+            Metadata.schema_ == self.schema,
+            Metadata.table_ == (self.name)
+        )
+        metadata = session.execute(stmt).fetchone()
+
+        return (
+            metadata is None or
+            metadata[0].checksum_ != self.checksum and
+            metadata[0].artifact.checksum_ != self.artifact["md5"]
+        )
 
     @classmethod
     def order_columns(cls, columns, order):

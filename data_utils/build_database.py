@@ -37,16 +37,22 @@ def main(args=None):
     session.commit()
 
     # Stage and flush to database
+    updated = []
     for table in database.tables:
+        if not table.is_updated(session):
+            logging.info("Table '%s'.'%s': Already up to date.",
+                         table.schema, table.name)
+            continue
         table.create(session)
         table.stage_meta.load(session)
         session.flush()
+        updated.append(table)
 
     # Run transforms
     database.execute_directory("transform", session)
 
     # Load to final schema and flush to database
-    for table in database.tables:
+    for table in updated:
         table.enforce_constraints(session)
         table.load(session)
         table.create_indexes(session)
