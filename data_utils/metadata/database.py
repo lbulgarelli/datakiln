@@ -10,7 +10,7 @@ import sqlparse
 from dvc.api import DVCFileSystem
 from sqlparse.sql import Statement, Identifier
 from sqlalchemy.orm.session import Session as SQLAlchemySession
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, URL
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.schema import CreateSchema
 from decouple import Config, RepositoryEnv, config
@@ -96,10 +96,10 @@ class DatabaseMeta():
         if users:
             conn.execute(dedent("""
             GRANT {role} TO "{users}"
-            """)).format(
+            """).format(
                 role=self.name,
                 users='", "'.join(users)
-            )
+            ))
 
     def create_role(self, session):
         """Create database role.
@@ -246,7 +246,7 @@ class Session(SQLAlchemySession):
         return result
 
     @classmethod
-    def create(cls, user, host, port, database, dialect):
+    def create(cls, user, host, port, database, dialect, password=None):
         # pylint: disable=too-many-arguments, too-many-positional-arguments
         """Connect to database using SQLAlchemy.
 
@@ -265,16 +265,27 @@ class Session(SQLAlchemySession):
         :param dialect: Dialect of the database.
         :type dialect: str
 
+        :param password: User's password.
+        :type password: str
+
         :return: Database session.
         :rtype: data_utils.metadata.database.Session
         """
+        url_object = URL.create(
+            dialect,
+            username=user,
+            password=password,
+            host=host,
+            database=database,
+            port=port
+        )
         engine = create_engine(
-            f"{dialect}://{user}:@{host}:{port}/{database}",
+            url_object,
             isolation_level="SERIALIZABLE", pool_recycle=60)
 
         # Create database
-        if not database_exists(engine.url):
-            create_database(engine.url)
+        if dialect != "oracle" and not database_exists(url_object):
+            create_database(url_object)
 
         # Connect
         conn = Session(bind=engine)

@@ -12,8 +12,8 @@ from itertools import repeat
 from getpass import getpass, getuser
 
 import pandas as pd
-from sqlalchemy import MetaData, URL
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import MetaData
+from sqlalchemy import inspect
 from sqlalchemy.dialects import registry
 
 from data_utils.metadata.database import DatabaseMeta, Session
@@ -115,11 +115,11 @@ def generate_table_meta(meta_dir, table, dialect=None):
         json.dump(meta, file, indent=4)
 
 
-def retrieve_cohort(conn, directory, cohort):
+def retrieve_cohort(session, directory, cohort):
     """Retrieve cohort.
 
-    :param conn: SQLAlchemy connection or session.
-    :type conn: sqlalchemy.Engine
+    :param session: Database Session.
+    :type session: data_utils.metadata.database.Session
 
     :param directory: Path for metadata directory.
     :type directory: str
@@ -133,28 +133,28 @@ def retrieve_cohort(conn, directory, cohort):
     if not cohort.endswith(".sql"):
         # Connect to source (build) database
         db_params = DatabaseMeta.load_env(directory)
-        source_conn = Session.create(**db_params).bind.engine
+        engine = Session.create(**db_params).bind
         schema, table = cohort.split(".")
 
         # Retrieve data types
         dtype = {}
-        inspector = inspect(source_conn)
+        inspector = inspect(engine)
         for col_info in inspector.get_columns(table, schema=schema):
             col_name = col_info["name"]
             col_type = col_info["type"]
-            dialect_obj = registry.load(conn.dialect.name)
+            dialect_obj = registry.load(session.bind.dialect.name)
             dialect_type = col_type.dialect_impl(dialect_obj())
             dtype[col_name] = dialect_type
 
         # Transfer cohort data
-        cohort = pd.read_sql_table(table, source_conn, schema)
-        cohort.to_sql(f'tmp_cohort_{UUID}', conn.engine, index=False,
+        cohort = pd.read_sql_table(table, engine, schema)
+        cohort.to_sql(f'tmp_cohort_{UUID}', session.bind, index=False,
                       dtype=dtype)
         return
 
     # Otherwise we create it from the cohort SQL file
     with open(directory / 'extract' / 'cohort.sql', encoding="utf-8") as file:
-        conn.execute(dedent("""
+        session.execute(dedent("""
         CREATE TABLE tmp_cohort_{uuid} AS
         {query}
         """)).format(
@@ -215,14 +215,14 @@ def generate_join(columns, reference):
                 reference["columns"]
             )
         )
-    )[1:]
+    ).strip()
 
 
-def columns_indexed(conn, table, columns):
+def columns_indexed(session, table, columns):
     """Evaluate the existence of a index with the specified columns.
 
-    :param conn: SQLAlchemy connection or session.
-    :type conn: sqlalchemy.Engine
+    :param session: Database Session.
+    :type session: data_utils.metadata.database.Session
 
     :param table: Name of the table in the source DBMS.
     :type table: str
@@ -233,7 +233,7 @@ def columns_indexed(conn, table, columns):
     :return: Does the index exist?
     :rtype: bool
     """
-    insp = inspect(conn)
+    insp = inspect(session.bind)
     for idx in insp.get_indexes(table):
         if set(idx["column_names"]) == set(columns):
             return True
@@ -320,11 +320,12 @@ def generate_filter(conn, columns, reference, cohort=None, join=None):
     return dedent("""
     SELECT 1
     FROM {table} ref
-    {join}WHERE 1 = 1
+    {join}
+    WHERE 1 = 1
     AND {columns}
     """).format(
         table=table,
-        join="".join(
+        join="\n".join(
             generate_join(**join_meta)
             for join_meta in join or []
         ),
@@ -339,12 +340,12 @@ def generate_filter(conn, columns, reference, cohort=None, join=None):
     ).split("\n")
 
 
-def generate_table_data(conn, data, schema, table, filters, export=True):
+def generate_table_data(session, data, schema, table, filters, export=True):
     # pylint: disable=too-many-arguments, too-many-positional-arguments
     """Generate table metadata from DBMS.
 
-    :param conn: SQLAlchemy connection or session.
-    :type conn: sqlalchemy.Engine
+    :param session: Database Session.
+    :type session: data_utils.metadata.database.Session
 
     :param data: Data of retrieved tables.
     :type data: pandas.DataFrame
@@ -377,11 +378,11 @@ def generate_table_data(conn, data, schema, table, filters, export=True):
         table=table,
         uuid=UUID,
         filters="\n  UNION ALL\n".join("\n  ".join(
-            generate_filter(conn, **filter))
+            generate_filter(session, **filter))
             for filter in filters
         )
     )
-    conn.execute(sql)
+    session.execute(sql)
 
     # Skip retrieval if its not going to be exported
     if not export:
@@ -392,7 +393,7 @@ def generate_table_data(conn, data, schema, table, filters, export=True):
     data[schema][table] = pd.read_sql(dedent(f"""
     SELECT *
     FROM tmp_{table}_{UUID}
-    """), conn, chunksize=10000)
+    """), session.bind, chunksize=10000)
 
 
 def main(args=None):
@@ -431,14 +432,15 @@ def main(args=None):
     meta_dir.mkdir(exist_ok=True)
 
     # Connect to source database
-    conn = create_engine(URL.create(
-        f"{args.dialect}+{DRIVER[args.dialect]}",
-        username=args.user,
+    session = Session.create(
+        dialect=args.dialect,
+        user=args.user,
         password=args.password or getpass(),
         host=args.host,
         database=args.database,
-    )).connect()
-    conn.execution_options(stream_results=True)
+        port=args.port
+    )
+    session.bind.execution_options(stream_results=True)
 
     # Create data directory if not exists
     data_dir = directory / "data"
@@ -471,7 +473,7 @@ def main(args=None):
         for filter_ in extract_meta["filters"]:
             if "cohort" not in filter_:
                 continue
-            retrieve_cohort(conn, directory, filter_["cohort"])
+            retrieve_cohort(session, directory, filter_["cohort"])
             break
         break
 
@@ -490,7 +492,7 @@ def main(args=None):
             export = table in args.include
 
         # Retrieve data
-        generate_table_data(conn, data, **extract_meta, export=export)
+        generate_table_data(session, data, **extract_meta, export=export)
 
         # Skip export if empty
         table = extract_meta["table"]
@@ -513,14 +515,14 @@ def main(args=None):
     # Drop tables
     for schema, tables in data.items():
         for table in list(tables.keys()):
-            conn.execute(f"DROP TABLE tmp_{table}_{UUID}")
+            session.execute(f"DROP TABLE tmp_{table}_{UUID}")
 
             # We remove tables from dict if they are not included
             if not tables[table]:
                 tables.pop(table)
 
     # Drop cohort table
-    conn.execute(f"DROP TABLE tmp_cohort_{UUID}")
+    session.execute(f"DROP TABLE tmp_cohort_{UUID}")
 
     # Skip metadata generation
     if not args.metadata:
@@ -531,7 +533,7 @@ def main(args=None):
 
     for schema, tables in data.items():
         # Retrieve metadata from DBMS
-        metadata = get_metadata(conn, schema, tables)
+        metadata = get_metadata(session, schema, tables)
 
         for _, table in metadata.tables.items():
             # Generate table metadata
@@ -539,7 +541,7 @@ def main(args=None):
             generate_table_meta(meta_dir, table, db_params["dialect"])
 
     # Close connection
-    conn.close()
+    session.close()
 
 
 if __name__ == "__main__":
