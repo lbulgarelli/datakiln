@@ -101,30 +101,30 @@ class DatabaseMeta():
                 users='", "'.join(users)
             )
 
-    def create_role(self, conn):
-        """Connect to database using SQLAlchemy.
+    def create_role(self, session):
+        """Create database role.
 
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
         """
-        try:
-            conn.execute(dedent("""
-            CREATE ROLE {database}
-            """).format(database=self.name))
-        except ProgrammingError as error:
-            message = f'role "{self.name}" already exists'
-            if message in error._message():  # pylint: disable=protected-access
-                return
-            raise error
+        engine = session.get_bind()
+        with engine.connect() as conn:
+            try:
+                conn.execute(text(f"CREATE ROLE {self.name}"))
+            except ProgrammingError as error:
+                message = f'role "{self.name}" already exists'
+                if message in error._message():  # pylint: disable=protected-access # noqa: E501
+                    return
+                raise error
 
-    def execute_directory(self, directory, conn):
+    def execute_directory(self, directory, session):
         """Executes SQL scripts in a given directory.
 
         :param directory: Path for metadata directory.
         :type directory: str
 
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
 
         :param ignore: List of files to ignore.
         :type ignore: str
@@ -142,23 +142,18 @@ class DatabaseMeta():
                 sql = file.read()
 
             # Execute query
-            conn.execute(sql)
+            session.execute(sql)
 
-            # Flush to database
-            conn.flush()
-
-    @classmethod
-    def create_metadata(cls, session):
+    def create_metadata(self, session):
         """
         :param session: Database Session.
         :type session: data_utils.metadata.database.Session
         """
-        engine = session.get_bind().engine
+        engine = session.get_bind()
         with engine.connect() as conn:
             schema = CreateSchema(Base.metadata.schema, if_not_exists=True)
             conn.execute(schema)
             Base.metadata.create_all(conn, checkfirst=True)
-            conn.commit()
 
     @classmethod
     def load_env(cls, directory):
@@ -193,10 +188,23 @@ class Session(SQLAlchemySession):
     # pylint: disable=too-few-public-methods
     """Manages persistence operations for ORM-mapped objects.
     """
+
+    def __init__(self, **kwargs):
+        r"""
+        :param \**kwargs: SQLAlchemy session attributes.
+        :type \**kwargs: dict
+
+        :return: Database session.
+        :rtype: data_utils.metadata.database.Session
+
+        """
+        self._buffer = []
+        super().__init__(**kwargs)
+
     def _is_identifier(self, token):
         return isinstance(token, Identifier) and token.value != 'MATERIALIZED'
 
-    def execute(self, statement, *args, **kwargs):
+    def execute(self, statement, *args, buffer_size=1, **kwargs):
         r"""Executes a SQL statement construct and returns a CursorResult.
 
         :param statement: Statement to be executed.
@@ -205,7 +213,7 @@ class Session(SQLAlchemySession):
         :param statement: Statement to be executed.
         :type statement: str
 
-        :param \**kwargs: SQLAlchemy.execute parameters.
+        :param \**kwargs: SQLAlchemy execute parameters.
         :type \**kwargs: dict
         """
         if not isinstance(statement, str):
@@ -224,7 +232,18 @@ class Session(SQLAlchemySession):
             if id_drop.value != id_create.value:
                 raise ValueError("DROP/CREATE have distinct identifiers.")
 
-        return super().execute(text(statement), *args, **kwargs)
+        # Add to buffer
+        self._buffer.append(statement)
+        if len(self._buffer) < buffer_size:
+            return None
+
+        # Reset buffer
+        statement = ";\n\n".join(self._buffer)
+        self._buffer = []
+
+        result = super().execute(text(statement), *args, **kwargs)
+        self.commit()
+        return result
 
     @classmethod
     def create(cls, user, host, port, database, dialect):
@@ -246,8 +265,8 @@ class Session(SQLAlchemySession):
         :param dialect: Dialect of the database.
         :type dialect: str
 
-        :return: SQLAlchemy session.
-        :rtype: sqlalchemy.orm.session.Session
+        :return: Database session.
+        :rtype: data_utils.metadata.database.Session
         """
         engine = create_engine(
             f"{dialect}://{user}:@{host}:{port}/{database}",
@@ -258,6 +277,6 @@ class Session(SQLAlchemySession):
             create_database(engine.url)
 
         # Connect
-        conn = Session(bind=engine.connect())
+        conn = Session(bind=engine)
 
         return conn

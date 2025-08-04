@@ -51,11 +51,27 @@ class ColumnMeta():
                 continue
             yield item
 
-    def resolve_na(self, conn, schema, name, na_values):
+    def typed(self, dialect):
+        """Name of column followed by dialect-specific type.
+
+        :param dialect: Dialect of the database.
+        :type dialect: str
+
+        :return: Typed column name.
+        :rtype: str
+        """
+        typed = f"{self.rename} {self.dtype[dialect]}"
+
+        if self.required:
+            typed += "NOT NULL"
+
+        return typed
+
+    def resolve_na(self, session, schema, name, na_values, **kwargs):
         """Enforce column data type.
 
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
 
         :param schema: Table schema.
         :type schema: str
@@ -79,60 +95,13 @@ class ColumnMeta():
             name=self.rename,
             na_values="'\n  , '".join(na_values)
         )
-        conn.execute(stmt)
+        session.execute(stmt, **kwargs)
 
-    def enforce_type(self, conn, schema, name):
-        """Resolve NULL values
-
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
-
-        :param schema: Table schema.
-        :type schema: str
-
-        :param name: Table name.
-        :type name: str
-
-        :return: None
-        """
-        # Get database dialect from connection
-        dialect = conn.bind.dialect.name
-
-        stmt = dedent(f"""
-        ALTER TABLE {schema}.{name}
-        ALTER COLUMN {self.rename} TYPE {self.dtype[dialect]}
-        USING {self.rename}::{self.dtype[dialect]}
-        """)
-        conn.execute(stmt)
-
-    def enforce_required(self, conn, schema, name):
-        """Enforce required column values.
-
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
-
-        :param schema: Table schema.
-        :type schema: str
-
-        :param name: Table name.
-        :type name: str
-
-        :return: None
-        """
-        if not self.required:
-            return
-
-        stmt = dedent(f"""
-        ALTER TABLE {schema}.{name}
-        ALTER COLUMN {self.rename} SET NOT NULL
-        """)
-        conn.execute(stmt)
-
-    def comment(self, conn, schema, name):
+    def comment(self, session, schema, name, **kwargs):
         """Add column description as a column comment.
 
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
 
         :param schema: Table schema.
         :type schema: str
@@ -148,4 +117,4 @@ class ColumnMeta():
         stmt = dedent(f"""
         COMMENT ON COLUMN {schema}.{name}.{self.rename} IS '{self.description}'
         """)
-        conn.execute(stmt)
+        session.execute(stmt, **kwargs)

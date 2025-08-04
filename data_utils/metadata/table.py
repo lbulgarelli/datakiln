@@ -125,19 +125,20 @@ class TableBase():
         for column in columns:
             self.columns.append(ColumnMeta(**column))
 
-    def create(self, conn):
+    def create(self, session):
         """Create statement.
 
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
 
         :return: None
         """
         # Create the schema if it does not exists
-        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {self.schema}")
+        session.execute(f"CREATE SCHEMA IF NOT EXISTS {self.schema}")
 
         # We replace the table if it already exists
-        conn.execute(f"DROP TABLE IF EXISTS {self.schema}.{self.name} CASCADE")
+        session.execute(
+            f"DROP TABLE IF EXISTS {self.schema}.{self.name} CASCADE")
 
         # Add columns from unpivot in correct order
         columns = self.columns.copy()
@@ -147,6 +148,10 @@ class TableBase():
                     columns.insert(column.order, column)
                 columns.extend(upv.target_values)
 
+        # Prepare function to generate typed column names
+        dialect = session.bind.dialect.name
+        typed = partial(ColumnMeta.typed, dialect=dialect)
+
         # Creates table. All columns initially have TEXT type.
         # Types are enforced after loading the data one column
         # at a time so we can identify the specific column
@@ -154,17 +159,17 @@ class TableBase():
         # The copy command would otherwise issue unhelpful log message.
         stmt = dedent("""
         CREATE TABLE {schema}.{name} (
-            {columns} TEXT
+            {columns}
           , {row_id} SERIAL
         )
         """).format(
             name=self.name, schema=self.schema, row_id=self._row_id,
-            columns=' TEXT\n  , '.join(map(str, columns)),
+            columns='\n  , '.join(map(typed, columns)),
         )
-        conn.execute(stmt)
+        session.execute(stmt)
 
         # Create index to speed up validations
-        conn.execute(dedent(f"""
+        session.execute(dedent(f"""
         CREATE INDEX ON {self.schema}.{self.name} (meta_row_id)
         """))
 
@@ -193,23 +198,23 @@ class StageMeta(TableBase):
         for column in self.columns:
             column.dtype = dict.fromkeys(column.dtype.keys(), "TEXT")
 
-    def create(self, conn):
+    def create(self, session):
         """Create statement.
 
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
 
         :return: None
         """
-        super().create(conn)
+        super().create(session)
 
         # Add column to log staging errors
-        conn.execute(dedent(f"""
+        session.execute(dedent(f"""
         ALTER TABLE {self.schema}.{self.name} ADD COLUMN meta_log TEXT
         """))
 
         # Create index to speed up validations
-        conn.execute(dedent(f"""
+        session.execute(dedent(f"""
         CREATE INDEX ON {self.schema}.{self.name} (meta_log)
         """))
 
@@ -331,18 +336,18 @@ class TableMeta(TableBase):
 
         return stage_meta
 
-    def create(self, conn):
+    def create(self, session):
         """Create statement.
 
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
 
         :return: None
         """
-        super().create(conn)
+        super().create(session)
 
         # Create stage as well
-        self.stage_meta.create(conn)
+        self.stage_meta.create(session)
 
     def unpivot(self, conn):
         """Unpivot a table.
@@ -420,11 +425,11 @@ class TableMeta(TableBase):
                 column.enforce_type(conn, self.schema, self.name)
                 column.enforce_required(conn, self.schema, self.name)
 
-    def enforce_constraints(self, conn):
+    def enforce_constraints(self, session):
         """Enforce table constraints.
 
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
 
         :return: None
         """
@@ -433,25 +438,14 @@ class TableMeta(TableBase):
         # Enforce constraints
         for column in self.columns:
             # Resolve NULL values
-            column.resolve_na(
-                conn, schema=self.schema, name=self.name,
-                na_values=self.na_values)
-
-            # Enforce data types
-            column.enforce_type(
-                conn, name=self.name, schema=self.schema)
+            column.resolve_na(session, self.schema, self.name, self.na_values)
 
             # Add comment to columns
-            column.comment(
-                conn, schema=self.schema, name=self.name)
-
-            # Enforce required
-            column.enforce_required(
-                conn, schema=self.schema, name=self.name)
+            column.comment(session, self.schema, self.name)
 
         # Enforce foreign keys
         for fk in self.foreign_keys:
-            fk.create(conn)
+            fk.create(session)
 
     def create_indexes(self, conn):
         """Create table indexes.
@@ -537,7 +531,7 @@ class TableMeta(TableBase):
             name=self.name, schema=self.schema,
             where_reqs="\n  OR ".join(where_req)
         )
-        conn.execute(stmt)
+        conn.execute(stmt, buffer_size=5)
 
         # Flag rows violating a foreign key constraint
         stmt = dedent("""
@@ -559,7 +553,7 @@ class TableMeta(TableBase):
             n_fks=len(join_fks),
             null_fks="\n  ".join(chain(*null_fks)),
         )
-        conn.execute(stmt)
+        conn.execute(stmt, buffer_size=5)
 
         # Move rows to final schema
         stmt = dedent("""
@@ -579,7 +573,7 @@ class TableMeta(TableBase):
             columns="\n  , ".join(columns),
             typed="\n  , ".join(typed),
         )
-        conn.execute(stmt)
+        conn.execute(stmt, buffer_size=5)
 
         # Deleted moved rows
         stmt = dedent("""
@@ -589,7 +583,7 @@ class TableMeta(TableBase):
         """).format(
             name=self.name, schema=self.schema
         )
-        conn.execute(stmt)
+        conn.execute(stmt, buffer_size=5)
 
         # Rows that still remain in staging but did not
         # get flagged before this point are PK duplicates
@@ -601,7 +595,7 @@ class TableMeta(TableBase):
         """).format(
             name=self.name, schema=self.schema
         )
-        conn.execute(stmt)
+        conn.execute(stmt, buffer_size=5)
 
         # Warn of any remaining staged records
         count = conn.execute(dedent(f"""
@@ -641,9 +635,6 @@ class TableMeta(TableBase):
             schema_=self.schema, table_=self.name,
             checksum_=self.artifact["md5"])
         session.merge(artifact)
-
-        # Flush to database
-        session.flush()
 
     def is_updated(self, session):
         """

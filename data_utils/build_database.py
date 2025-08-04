@@ -34,7 +34,6 @@ def main(args=None):
 
     # Create role for database read access
     database.create_role(session)
-    session.commit()
 
     # Stage and flush to database
     updated = []
@@ -45,7 +44,6 @@ def main(args=None):
             continue
         table.create(session)
         table.stage_meta.load(session)
-        session.flush()
         updated.append(table)
 
     # Run transforms
@@ -57,16 +55,12 @@ def main(args=None):
         table.load(session)
         table.create_indexes(session)
         table.create_metadata(session)
-        session.flush()
 
     # Run views
     database.execute_directory("derive", session)
 
     # Grant read permissions on entire database
     database.grant(session, args.grant)
-
-    # Commit changes
-    session.commit()
 
 
 if __name__ == "__main__":
