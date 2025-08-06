@@ -218,11 +218,11 @@ class StageMeta(TableBase):
         CREATE INDEX ON {self.schema}.{self.name} (meta_log)
         """))
 
-    def load(self, conn):
+    def load(self, session):
         """Stage data.
 
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
 
         :return: None
         """
@@ -272,7 +272,7 @@ class StageMeta(TableBase):
             )
 
             # Execute and copy from file
-            cursor = conn.connection().connection.cursor()
+            cursor = session.connection().connection.cursor()
             cursor.copy_expert(stmt, buffer)
             buffer.close()
 
@@ -483,11 +483,11 @@ class TableMeta(TableBase):
         )
         conn.execute(stmt)
 
-    def load(self, conn):
+    def load(self, session):
         """Load data from stage.
 
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
 
         :return: None
         """
@@ -496,7 +496,7 @@ class TableMeta(TableBase):
         null_fks = map(ForeignKeyMeta.is_reference_null, self.foreign_keys)
 
         # Get database dialect from connection
-        dialect = conn.bind.dialect.name
+        dialect = session.bind.dialect.name
 
         typed = []
         columns = []
@@ -516,7 +516,7 @@ class TableMeta(TableBase):
 
         # Skipped if we are pivoting the table later
         if not self.unpivot_meta:
-            self.enforce_pk(conn)
+            self.enforce_pk(session)
 
         # Flag rows missing required columns
         stmt = dedent("""
@@ -531,7 +531,7 @@ class TableMeta(TableBase):
             name=self.name, schema=self.schema,
             where_reqs="\n  OR ".join(where_req)
         )
-        conn.execute(stmt, buffer_size=5)
+        session.execute(stmt, buffer_size=5)
 
         # Flag rows violating a foreign key constraint
         stmt = dedent("""
@@ -553,7 +553,7 @@ class TableMeta(TableBase):
             n_fks=len(join_fks),
             null_fks="\n  ".join(chain(*null_fks)),
         )
-        conn.execute(stmt, buffer_size=5)
+        session.execute(stmt, buffer_size=5)
 
         # Move rows to final schema
         stmt = dedent("""
@@ -573,7 +573,7 @@ class TableMeta(TableBase):
             columns="\n  , ".join(columns),
             typed="\n  , ".join(typed),
         )
-        conn.execute(stmt, buffer_size=5)
+        session.execute(stmt, buffer_size=5)
 
         # Deleted moved rows
         stmt = dedent("""
@@ -583,7 +583,7 @@ class TableMeta(TableBase):
         """).format(
             name=self.name, schema=self.schema
         )
-        conn.execute(stmt, buffer_size=5)
+        session.execute(stmt, buffer_size=5)
 
         # Rows that still remain in staging but did not
         # get flagged before this point are PK duplicates
@@ -595,10 +595,10 @@ class TableMeta(TableBase):
         """).format(
             name=self.name, schema=self.schema
         )
-        conn.execute(stmt, buffer_size=5)
+        session.execute(stmt, buffer_size=5)
 
         # Warn of any remaining staged records
-        count = conn.execute(dedent(f"""
+        count = session.execute(dedent(f"""
         SELECT COUNT(meta_row_id) from _{self.schema}.{self.name}
         """)).first()[0]
         if count > 0:
@@ -608,14 +608,14 @@ class TableMeta(TableBase):
             )
 
         # Unpivot
-        self.unpivot(conn)
+        self.unpivot(session)
 
         # Local File System location
         if self.lfs_location:
             # Add file location column to table
-            self.lfs_location.add_column(conn, table=self)
+            self.lfs_location.add_column(session, table=self)
             # Find all files in specified bucket/folder and join them to table
-            self.lfs_location.find(conn, table=self)
+            self.lfs_location.find(session, table=self)
 
     def create_metadata(self, session):
         """

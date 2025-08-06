@@ -63,7 +63,7 @@ class ColumnMeta():
         typed = f"{self.rename} {self.dtype[dialect]}"
 
         if self.required:
-            typed += "NOT NULL"
+            typed += " NOT NULL"
 
         return typed
 

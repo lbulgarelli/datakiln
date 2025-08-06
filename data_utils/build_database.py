@@ -55,12 +55,16 @@ def main(args=None):
         table.load(session)
         table.create_indexes(session)
         table.create_metadata(session)
+        session.commit()
 
     # Run views
+    session.close()
     database.execute_directory("derive", session)
 
     # Grant read permissions on entire database
     database.grant(session, args.grant)
+    session.commit()
+    session.close()
 
 
 if __name__ == "__main__":

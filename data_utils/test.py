@@ -49,7 +49,7 @@ class TestBuild():
 
     def test_create_table(self, test_session):  # pylint: disable=redefined-outer-name # noqa: E501
         """Test create database tables"""
-        insp = inspect(test_session.get_bind())
+        insp = inspect(test_session.connection())
 
         tables = self.database.tables
         for dependency in self.dependencies:

@@ -111,6 +111,7 @@ class DatabaseMeta():
         with engine.connect() as conn:
             try:
                 conn.execute(text(f"CREATE ROLE {self.name}"))
+                conn.commit()
             except ProgrammingError as error:
                 message = f'role "{self.name}" already exists'
                 if message in error._message():  # pylint: disable=protected-access # noqa: E501
@@ -154,6 +155,7 @@ class DatabaseMeta():
             schema = CreateSchema(Base.metadata.schema, if_not_exists=True)
             conn.execute(schema)
             Base.metadata.create_all(conn, checkfirst=True)
+            conn.commit()
 
     @classmethod
     def load_env(cls, directory):
@@ -241,9 +243,7 @@ class Session(SQLAlchemySession):
         statement = ";\n\n".join(self._buffer)
         self._buffer = []
 
-        result = super().execute(text(statement), *args, **kwargs)
-        self.commit()
-        return result
+        return super().execute(text(statement), *args, **kwargs)
 
     @classmethod
     def create(cls, user, host, port, database, dialect, password=None):
@@ -287,7 +287,4 @@ class Session(SQLAlchemySession):
         if dialect != "oracle" and not database_exists(url_object):
             create_database(url_object)
 
-        # Connect
-        conn = Session(bind=engine)
-
-        return conn
+        return Session(bind=engine, autoflush=True)
