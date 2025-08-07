@@ -47,7 +47,7 @@ def main(args=None):
         updated.append(table)
 
     # Run transforms
-    database.execute_directory("transform", session)
+    database.execute_directory("transform", session, max_statements=0)
 
     # Load to final schema and flush to database
     for table in updated:

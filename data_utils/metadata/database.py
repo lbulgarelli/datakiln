@@ -118,7 +118,7 @@ class DatabaseMeta():
                     return
                 raise error
 
-    def execute_directory(self, directory, session):
+    def execute_directory(self, directory, session, **kwargs):
         """Executes SQL scripts in a given directory.
 
         :param directory: Path for metadata directory.
@@ -143,7 +143,7 @@ class DatabaseMeta():
                 sql = file.read()
 
             # Execute query
-            session.execute(sql)
+            session.execute(sql, **kwargs)
 
     def create_metadata(self, session):
         """
@@ -206,14 +206,22 @@ class Session(SQLAlchemySession):
     def _is_identifier(self, token):
         return isinstance(token, Identifier) and token.value != 'MATERIALIZED'
 
-    def execute(self, statement, *args, buffer_size=1, **kwargs):
+    def execute(self, statement, *args, buffer_size=1, max_statements=1,
+                **kwargs):
         r"""Executes a SQL statement construct and returns a CursorResult.
 
         :param statement: Statement to be executed.
         :type statement: str
 
-        :param statement: Statement to be executed.
-        :type statement: str
+        :param buffer_size: Buffer size.
+                            The statements will only be sent to the database
+                            if the number of statements in the buffer exceeds
+                            the value of this parameter.
+        :type buffer_size: int
+
+        :param max_statements: Maximum number of statements to allow per
+                               execute call.
+        :type max_statements: int
 
         :param \**kwargs: SQLAlchemy execute parameters.
         :type \**kwargs: dict
@@ -223,8 +231,12 @@ class Session(SQLAlchemySession):
 
         parsed = sqlparse.parse(statement)
         stmt_types = list(map(Statement.get_type, parsed))
-        if len(parsed) > 1 and stmt_types != ["DROP", "CREATE"]:
-            raise ValueError("Only one SQL statement is allowed per file.")
+        if (
+            len(parsed) > max_statements > 0
+            and set(stmt_types) != {"DROP", "CREATE"}
+        ):
+            raise ValueError(
+                f"Only {max_statements} SQL statement(s) allowed per file.")
 
         # For DROP, CREATE pairs, validate the same identifier is used
         if stmt_types == ["DROP", "CREATE"]:
