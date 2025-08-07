@@ -62,12 +62,17 @@ class TestBuild():
                 insp.has_table(table.name, table.schema) and
                 insp.has_table(stage.name, stage.schema)
             )
-            table.enforce_constraints(test_session)
-            test_session.flush()
+            table.enforce_pk(test_session)
 
     def test_transform(self, test_session):  # pylint: disable=redefined-outer-name # noqa: E501
         """Test transforming data"""
-        self.database.execute_directory("transform", test_session)
+        self.database.execute_directory(
+            "transform", test_session, max_statements=0)
+
+    def test_constraints(self, test_session):  # pylint: disable=redefined-outer-name # noqa: E501
+        """Test enforcing contraints"""
+        for table in self.database.tables:
+            table.enforce_constraints(test_session)
 
     def test_derive(self, test_session):  # pylint: disable=redefined-outer-name # noqa: E501
         """Test create derived views"""
