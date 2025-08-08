@@ -8,6 +8,7 @@ import gzip
 import logging
 from hashlib import md5
 from pathlib import Path
+from copy import deepcopy
 from textwrap import dedent
 from itertools import chain
 from functools import partial
@@ -144,9 +145,10 @@ class TableBase():
         columns = self.columns.copy()
         if hasattr(self, "unpivot_meta"):
             for upv in self.unpivot_meta:
-                for column in upv.target_columns:
-                    columns.insert(column.order, column)
-                columns.extend(upv.target_values)
+                for column in upv.target_columns + upv.target_values:
+                    column = deepcopy(column)
+                    column.required = False
+                    columns.insert(getattr(column, "order", -1), column)
 
         # Prepare function to generate typed column names
         dialect = session.bind.dialect.name
@@ -196,6 +198,7 @@ class StageMeta(TableBase):
 
         # Do not enforce types in stage
         for column in self.columns:
+            column.required = False
             column.dtype = dict.fromkeys(column.dtype.keys(), "TEXT")
 
     def create(self, session):
@@ -349,26 +352,33 @@ class TableMeta(TableBase):
         # Create stage as well
         self.stage_meta.create(session)
 
-    def unpivot(self, conn):
+    def unpivot(self, session):
         """Unpivot a table.
 
-        :param con: SQLAlchemy connection/session.
-        :type con: sqlalchemy.Engine
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
 
         :return: None
         """
         if not self.unpivot_meta:
             return
 
+        # Retrieve database dialect from engine
+        dialect = session.bind.dialect.name
+
+        # Retrieve information from all metadata
         drop = []
         columns = []
         aliased = []
+        require = []
         laterals = []
         for upv in self.unpivot_meta:
-            drop.extend(map(str, upv.columns(unpivot=False)))
-            for column in upv.columns():
-                columns.append(column.name)
-                aliased.append(f"{upv.alias}.{column.name}")
+            drop.extend(map(str, upv.columns()))
+            for col in upv.target_columns + upv.target_values:
+                if col.required:
+                    require.append(col.name)
+                columns.append(col.name)
+                aliased.append(f"{upv.alias}.{col.name}::{col.dtype[dialect]}")
             laterals.append(upv.lateral())
 
         # Include columns that are not affected
@@ -402,7 +412,7 @@ class TableMeta(TableBase):
             aliased="\n  , ".join(aliased),
             laterals="".join(laterals)
         )
-        conn.execute(stmt)
+        session.execute(stmt)
 
         # Drop unpivoted columns
         stmt = dedent("""
@@ -414,16 +424,22 @@ class TableMeta(TableBase):
             name=self.name,
             columns="\n,  DROP COLUMN ".join(drop)
         )
-        conn.execute(stmt)
+        session.execute(stmt)
 
         # Enforce primary key
-        self.enforce_pk(conn)
+        self.enforce_pk(session)
 
-        # Enforce column properties
-        for upv in self.unpivot_meta:
-            for column in upv.columns():
-                column.enforce_type(conn, self.schema, self.name)
-                column.enforce_required(conn, self.schema, self.name)
+        # Enforce required target columns
+        stmt = dedent("""
+        ALTER TABLE {schema}.{name}
+            ALTER COLUMN {columns} SET NOT NULL
+        ;
+        """).format(
+            schema=self.schema,
+            name=self.name,
+            columns=' SET NOT NULL\n  , ALTER COLUMN '.join(require),
+        )
+        session.execute(stmt)
 
     def enforce_constraints(self, session):
         """Enforce table constraints.

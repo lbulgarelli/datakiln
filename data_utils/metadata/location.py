@@ -136,7 +136,7 @@ class LFSLocation(ColumnMeta):
         :return: None
         """
         # Table stage name
-        stg_name = f"stg_{table.schema}.{table.name}_local_fs"
+        stg_name = f"_{table.schema}.{table.name}_local_fs"
 
         # Drop table statement
         conn.execute(f"DROP TABLE IF EXISTS {stg_name}")
@@ -190,7 +190,7 @@ class LFSLocation(ColumnMeta):
         stmt = dedent("""
         UPDATE {schema}.{table_name} ot
         SET {name} = fst.{name}
-        FROM stg_{schema}.{stg_name} fst
+        FROM _{schema}.{stg_name} fst
         WHERE {cols_match}
         """).format(
             schema=table.schema,

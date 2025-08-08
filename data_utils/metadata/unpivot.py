@@ -108,16 +108,12 @@ class UnpivotMeta():
             value_meta = UnpivotValueMeta(self, **value, **kwargs)
             self.target_values.append(value_meta)
 
-    def columns(self, unpivot=True):
+    def columns(self):
         """Unpivot columns.
 
         :return: Pivot columns.
         :rtype: list[ColumnMeta]
         """
-        # List target columns
-        if unpivot:
-            return self.target_columns + self.target_values
-
         # List original columns
         columns = []
         for value in self.target_values:
@@ -177,5 +173,7 @@ class UnpivotMeta():
         """).format(
             values="\n  , ".join(self.values()),
             alias=self.alias,
-            columns="\n  , ".join(map(str, self.columns()))
+            columns="\n  , ".join(map(
+                str, self.target_columns + self.target_values
+            ))
         )[1:]
