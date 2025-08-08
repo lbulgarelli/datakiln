@@ -25,7 +25,7 @@ from sqlalchemy.orm import (
 
 from data_utils.io import open_excel
 from data_utils.metadata.column import ColumnMeta
-from data_utils.metadata.location import LFSLocation
+from data_utils.metadata.location import SSHLocation
 from data_utils.metadata.foreign_key import ForeignKeyMeta
 from data_utils.metadata.unpivot import UnpivotMeta
 
@@ -284,7 +284,7 @@ class TableMeta(TableBase):
     """Metadata for table."""
 
     def __init__(self, constraints=None, indexes=None, unpivot=None,
-                 lfs_location=None, **kwargs):
+                 location=None, **kwargs):
         r"""
         :param constraints: Metadata for table constraints.
         :type constraints: dict
@@ -304,9 +304,9 @@ class TableMeta(TableBase):
         self.indexes = indexes or []
         self.foreign_keys = []
         self.unpivot_meta = []
-        self.lfs_location = (
-            LFSLocation(**lfs_location)
-            if lfs_location else None
+        self.location = (
+            SSHLocation(**location)
+            if location else None
         )
 
         # Instantiate metadata object for all foreign keys
@@ -627,11 +627,11 @@ class TableMeta(TableBase):
         self.unpivot(session)
 
         # Local File System location
-        if self.lfs_location:
+        if self.location:
             # Add file location column to table
-            self.lfs_location.add_column(session, table=self)
+            self.location.add_column(session, table=self)
             # Find all files in specified bucket/folder and join them to table
-            self.lfs_location.find(session, table=self)
+            self.location.find(session, table=self)
 
     def create_metadata(self, session):
         """

@@ -4,7 +4,11 @@ File system location metadata.
 import re
 import logging
 from pathlib import Path
+from stat import S_ISDIR
 from textwrap import dedent
+
+from decouple import config
+from paramiko import SSHClient, AutoAddPolicy
 
 from data_utils.metadata.column import ColumnMeta
 
@@ -14,11 +18,11 @@ logging.basicConfig(
     format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s")
 
 
-class LFSLocation(ColumnMeta):
+class SSHLocation(ColumnMeta):
     # pylint: disable=too-many-instance-attributes
     """Column with local file locations."""
 
-    def __init__(self, folder, regex, match,
+    def __init__(self, host, folder, regex, match,
                  default_values=None, match_map=None,
                  **kwargs):
         # pylint: disable=too-many-arguments, too-many-positional-arguments
@@ -39,12 +43,12 @@ class LFSLocation(ColumnMeta):
         :param match_map: Replace values for each match using a dict.
         :type replace: list
         """
-        self.folder = folder
+        self.host = host
+        self.folder = Path(folder)
         self.regex = regex
         self.match = match
         self.default_values = default_values
         self.match_map = match_map
-        self.folder_path = Path(self.folder)
 
         super().__init__(**kwargs, dtype={"postgresql": "TEXT[]"})
 
@@ -67,6 +71,15 @@ class LFSLocation(ColumnMeta):
 
         return [''] * len(self.match)
 
+    def _glob(self, sftp, path):
+        """Recursively iterate directory."""
+        for entry in sftp.listdir_attr(path.as_posix()):
+            file_path = path / entry.filename
+            if S_ISDIR(entry.st_mode):
+                yield from self._glob(sftp, file_path)
+            else:
+                yield file_path
+
     def find(self, conn, table):
         """Find file names in directory and store them in a staging table.
 
@@ -86,11 +99,18 @@ class LFSLocation(ColumnMeta):
         formatted_rows = []
         n_matches = 0
 
-        # Iterate through all files in folder and subfolders
-        for file_path in self.folder_path.glob('**/*'):
-            if not file_path.is_file():
-                continue
+        # Establish SSH connection
+        ssh = SSHClient()
+        ssh.set_missing_host_key_policy(AutoAddPolicy())
+        ssh.connect(
+            hostname=self.host,
+            username=config("SSH_USER"),
+            password=config("SSH_PASSWORD")
+        )
 
+        # Iterate through all files in folder and subfolders
+        sftp = ssh.open_sftp()
+        for file_path in self._glob(sftp, self.folder):
             matches = self._match(file_path.name)
 
             # Count matches if there’s any non-empty text in any of the groups
