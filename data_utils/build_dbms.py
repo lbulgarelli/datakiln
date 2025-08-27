@@ -12,8 +12,7 @@ from itertools import repeat
 from getpass import getpass, getuser
 
 import pandas as pd
-from sqlalchemy import MetaData
-from sqlalchemy import inspect
+from sqlalchemy import inspect, MetaData
 from sqlalchemy.dialects import registry
 
 from data_utils.metadata.database import DatabaseMeta, Session
@@ -32,11 +31,11 @@ DRIVER = {
 UUID = str(uuid4()).rsplit("-", maxsplit=1)[-1]
 
 
-def get_metadata(conn, schema, tables):
+def get_metadata(session, schema, tables):
     """Generate column metadata from DBMS.
 
-    :param conn: SQLAlchemy connection or session.
-    :type conn: sqlalchemy.Engine
+    :param session: Database Session.
+    :type session: data_utils.metadata.database.Session
 
     :param schema: Name of the schema in the source DBMS.
     :type schema: str
@@ -49,7 +48,7 @@ def get_metadata(conn, schema, tables):
     """
     logging.info("RETRIEVING SCHEMA METADATA: %s", schema)
     metadata = MetaData(schema=schema)
-    metadata.reflect(bind=conn, only=tables)
+    metadata.reflect(bind=session.bind, only=tables)
 
     return metadata
 
@@ -157,10 +156,10 @@ def retrieve_cohort(session, directory, cohort):
         session.execute(dedent("""
         CREATE TABLE tmp_cohort_{uuid} AS
         {query}
-        """)).format(
+        """).format(
             uuid=UUID,
             query=file.read()
-        )
+        ))
 
 
 def alias_column(column, default):
