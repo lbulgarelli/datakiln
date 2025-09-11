@@ -6,6 +6,7 @@ import json
 import gzip
 import logging
 from uuid import uuid4
+from hashlib import md5
 from pathlib import Path
 from textwrap import dedent
 from itertools import repeat
@@ -304,13 +305,16 @@ def generate_filter(conn, columns, reference, cohort=None, join=None):
     # retrieve joined columns to create the appropriate index
     ref_columns = resolve_columns(reference["columns"], join)
 
+    # Generate hash for column list
+    columns_hash = md5("_".join(ref_columns).encode()).hexdigest()  # noqa: DUO130, E501
+
     # Create index to speed-up filter
     if not columns_indexed(conn, table, ref_columns):
         sql = dedent("""
-        CREATE INDEX {table}_idx_{short} ON {table} ({columns})
+        CREATE INDEX {table}_idx_{hash} ON {table} ({columns})
         """).format(
             table=table,
-            short="_".join(column[:5] for column in ref_columns),
+            hash=columns_hash,
             columns=", ".join(ref_columns)
         )
         conn.execute(sql)
