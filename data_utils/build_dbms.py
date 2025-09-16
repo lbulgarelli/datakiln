@@ -2,6 +2,7 @@
 Builds table metadata from DBMS
 """
 import re
+import csv
 import json
 import gzip
 import logging
@@ -343,15 +344,12 @@ def generate_filter(conn, columns, reference, cohort=None, join=None):
     ).split("\n")
 
 
-def generate_table_data(session, data, schema, table, filters, export=True):
+def generate_table_data(session, schema, table, filters, export_to=None):
     # pylint: disable=too-many-arguments, too-many-positional-arguments
     """Generate table metadata from DBMS.
 
     :param session: Database Session.
     :type session: data_utils.metadata.database.Session
-
-    :param data: Data of retrieved tables.
-    :type data: pandas.DataFrame
 
     :param schema: Name of the schema in the source DBMS.
     :type schema: str
@@ -362,8 +360,8 @@ def generate_table_data(session, data, schema, table, filters, export=True):
     :param filters: Metadata for filters.
     :type filters: dict
 
-    :param export: Is the table going to be exported?
-    :type export: bool
+    :param export_to: Export data to this folder.
+    :type export_to: str
     """
     logging.info("GENERATING TABLE DATA: %s.%s", schema, table)
 
@@ -388,15 +386,31 @@ def generate_table_data(session, data, schema, table, filters, export=True):
     session.execute(sql)
 
     # Skip retrieval if its not going to be exported
-    if not export:
-        data[schema][table] = []
+    if not export_to:
         return
 
-    # Retrieve data
-    data[schema][table] = pd.read_sql(dedent(f"""
-    SELECT *
-    FROM tmp_{table}_{UUID}
-    """), session.bind, chunksize=10000)
+    file_path = export_to / f"{table}.csv.gz"
+    with gzip.open(file_path, mode='wt', encoding='utf-8') as o_file:
+        logging.info("EXPORTING TABLE DATA: %s.%s", schema, table)
+
+        # Execute query
+        result = session.execute(
+            dedent(f"""
+            SELECT *
+            FROM tmp_{table}_{UUID}
+            """),
+            execution_options={
+                "stream_results": True
+            }
+        )
+
+        # Prepare to export as CSV
+        writer = csv.writer(o_file)
+        writer.writerow(result.keys())
+
+        # Export to file
+        for row in result:
+            writer.writerow(row)
 
 
 def main(args=None):
@@ -443,14 +457,13 @@ def main(args=None):
         database=args.database,
         port=args.port
     )
-    session.bind.execution_options(stream_results=True)
 
     # Create data directory if not exists
     data_dir = directory / "data"
     data_dir.mkdir(exist_ok=True)
 
-    # Define which tables to include
-    included = []
+    # Define which tables to create
+    create = []
     dependencies = set()
     for file in sorted(directory.glob("extract/*.json"), reverse=True):
         # Load extraction metadata
@@ -459,11 +472,11 @@ def main(args=None):
 
         # We include all tables if none are specified
         if args.include is None:
-            included.insert(0, extract_meta)
+            create.insert(0, extract_meta)
         # If table is specified, include it
         # Any tables used in filtering need to be included as well
         elif table in set(args.include) | dependencies:
-            included.insert(0, extract_meta)
+            create.insert(0, extract_meta)
             for table_filter in extract_meta["filters"]:
                 # Skip cohort filter
                 if table_filter.get("cohort", False):
@@ -472,7 +485,7 @@ def main(args=None):
                 dependencies.add(f"{reference['schema']}.{reference['table']}")
 
     # Retrieve cohort information
-    for extract_meta in included:
+    for extract_meta in create:
         for filter_ in extract_meta["filters"]:
             if "cohort" not in filter_:
                 continue
@@ -481,48 +494,29 @@ def main(args=None):
         break
 
     # Retrieve information
-    data = {}
-    for extract_meta in included:
-        # Create dict entry for schema
-        if (schema := extract_meta["schema"]) not in data:
-            data[schema] = {}
-        table = f"{schema}.{extract_meta['table']}"
-
+    exported = {}
+    for extract_meta in create:
         # We only export the specified tables
-        if args.include is None:
-            export = True
+        table = f"{extract_meta['schema']}.{extract_meta['table']}"
+        if args.include is None or table in args.include:
+            export_to = data_dir
         else:
-            export = table in args.include
+            export_to = None
 
         # Retrieve data
-        generate_table_data(session, data, **extract_meta, export=export)
+        generate_table_data(session, **extract_meta, export_to=export_to)
 
-        # Skip export if empty
-        table = extract_meta["table"]
-        if not data[schema][table]:
+        # Create list of exported tables
+        if not export_to:
             continue
-
-        # Export to file
-        first_chunk = True
-        file_path = data_dir / f"{table}.csv.gz"
-        logging.info("EXPORTING TABLE DATA: %s.%s", schema, table)
-        with gzip.open(file_path, mode='wt', encoding='utf-8') as o_file:
-            for chunk in data[schema][table]:
-                chunk.to_csv(
-                    o_file,
-                    header=first_chunk,
-                    encoding="utf-8",
-                    index=False)
-                first_chunk = False
+        if (schema := extract_meta["schema"]) not in exported:
+            exported[schema] = []
+        exported[schema].append(extract_meta["table"])
 
     # Drop tables
-    for schema, tables in data.items():
-        for table in list(tables.keys()):
-            session.execute(f"DROP TABLE tmp_{table}_{UUID}")
-
-            # We remove tables from dict if they are not included
-            if not tables[table]:
-                tables.pop(table)
+    for extract_meta in create:
+        table = extract_meta['table']
+        session.execute(f"DROP TABLE tmp_{table}_{UUID}")
 
     # Drop cohort table
     session.execute(f"DROP TABLE tmp_cohort_{UUID}")
@@ -534,7 +528,8 @@ def main(args=None):
     # Get target database params
     db_params = DatabaseMeta.load_env(directory)
 
-    for schema, tables in data.items():
+    # Generate table metadata
+    for schema, tables in exported.items():
         # Retrieve metadata from DBMS
         metadata = get_metadata(session, schema, tables)
 

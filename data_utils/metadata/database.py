@@ -293,7 +293,10 @@ class Session(SQLAlchemySession):
         )
         engine = create_engine(
             url_object,
-            isolation_level="SERIALIZABLE", pool_recycle=60)
+            isolation_level="SERIALIZABLE",
+            pool_recycle=60,
+            pool_pre_ping=True
+        )
 
         # Create database
         if dialect != "oracle" and not database_exists(url_object):
