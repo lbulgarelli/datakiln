@@ -665,7 +665,7 @@ class TableMeta(TableBase):
 
         return (
             metadata is None or
-            metadata[0].checksum_ != self.checksum and
+            metadata[0].checksum_ != self.checksum or
             metadata[0].artifact.checksum_ != self.artifact["md5"]
         )
 
