@@ -166,15 +166,9 @@ class DatabaseMeta():
         """
         db_params = {}
 
-        # Environment file directory
+        # Load .env file
         dotenv_file = Path(directory) / ".env"
-
-        # If the file does not exist,
-        # try to retrieve from the shell environment
-        if dotenv_file.exists():
-            env_config = Config(RepositoryEnv(dotenv_file))
-        else:
-            env_config = config
+        env_config = Config(RepositoryEnv(dotenv_file))
 
         # Get environment variables
         db_params["user"] = env_config("DB_USER", getuser())
