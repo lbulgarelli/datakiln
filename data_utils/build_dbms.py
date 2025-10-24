@@ -154,7 +154,7 @@ def retrieve_cohort(session, directory, cohort):
         return
 
     # Otherwise we create it from the cohort SQL file
-    with open(directory / 'extract' / 'cohort.sql', encoding="utf-8") as file:
+    with open(directory / 'extract' / cohort, encoding="utf-8") as file:
         session.execute(dedent("""
         CREATE TABLE tmp_cohort_{uuid} AS
         {query}
