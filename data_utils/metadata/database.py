@@ -13,7 +13,7 @@ from sqlalchemy.orm.session import Session as SQLAlchemySession
 from sqlalchemy import create_engine, text, URL
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.schema import CreateSchema
-from decouple import Config, RepositoryEnv, config
+from decouple import Config, RepositoryEnv
 from sqlalchemy_utils import create_database, database_exists
 
 from data_utils.metadata.table import TableMeta, Base
