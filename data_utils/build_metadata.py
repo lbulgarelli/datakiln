@@ -140,9 +140,10 @@ def main(args=None):
 
         # Read file
         params = {}
-        if args.delimiter:
+        reader = SUPPORTED_EXTENSIONS[extension]
+        if args.delimiter and reader.func == pd.read_csv:
             params["delimiter"] = args.delimiter
-        data = SUPPORTED_EXTENSIONS[extension](data_path.absolute(), **params)
+        data = reader(data_path.absolute(), **params)
 
         # Excel files can have more than one sheet
         # so we handle the data as a dictionary
