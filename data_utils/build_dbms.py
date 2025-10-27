@@ -128,7 +128,7 @@ def retrieve_cohort(session, directory, cohort):
     :param cohort: Name of cohort table or name of cohort file.
     :type cohort: str
     """
-    logging.info("GENERATING COHORT DATA")
+    logging.info("GENERATING COHORT DATA: %s", cohort)
 
     # If a table is specified, we copy it over
     if not cohort.endswith(".sql"):
@@ -156,9 +156,10 @@ def retrieve_cohort(session, directory, cohort):
     # Otherwise we create it from the cohort SQL file
     with open(directory / 'extract' / cohort, encoding="utf-8") as file:
         session.execute(dedent("""
-        CREATE TABLE tmp_cohort_{uuid} AS
+        CREATE TABLE tmp_{name}_{uuid} AS
         {query}
         """).format(
+            name=cohort.replace(".sql", ""),
             uuid=UUID,
             query=file.read()
         ))
@@ -187,8 +188,11 @@ def alias_column(column, default):
     return f"{default}.{column}"
 
 
-def generate_join(columns, reference):
+def generate_join(session, columns, reference):
     """Generate table metadata from DBMS.
+
+    :param session: Database Session.
+    :type session: data_utils.metadata.database.Session
 
     :param columns: Columns used to filter.
     :type columns: list[str]
@@ -199,13 +203,18 @@ def generate_join(columns, reference):
     :return: JOIN expression for filter query.
     :rtype: str
     """
+    table = f"tmp_{reference['table']}_{UUID}"
+
+    # When table is not extracted, use source
+    if not inspect(session.bind).has_table(table):
+        table = f"{reference['schema']}.{reference['table']}"
+
     # Generate EXISTS subqueries
     return dedent("""
-    JOIN {schema}.{table} {alias}
+    JOIN {table} {alias}
       ON {columns}
     """).format(
-        schema=reference["schema"],
-        table=reference["table"],
+        table=table,
         alias=reference["alias"],
         columns="\n  AND ".join(
             f"{alias_column(col, 'ref')} {op} {alias}.{ref}"
@@ -277,11 +286,11 @@ def resolve_columns(columns, join):
     return resolved
 
 
-def generate_filter(conn, columns, reference, cohort=None, join=None):
+def generate_filter(session, columns, reference, cohort=None, join=None):
     """Generate table metadata from DBMS.
 
-    :param conn: SQLAlchemy connection or session.
-    :type conn: sqlalchemy.Engine
+    :param session: Database Session.
+    :type session: data_utils.metadata.database.Session
 
     :param columns: Columns used to filter.
     :type columns: list[str]
@@ -299,7 +308,7 @@ def generate_filter(conn, columns, reference, cohort=None, join=None):
     :rtype: str
     """
     # Handle table name and cohort filter
-    table = "cohort" if cohort else reference["table"]
+    table = cohort.replace(".sql", "") if cohort else reference["table"]
     table = f"tmp_{table}_{UUID}"
 
     # The list may include columns from joined tables, so we
@@ -310,7 +319,7 @@ def generate_filter(conn, columns, reference, cohort=None, join=None):
     columns_hash = md5("_".join(ref_columns).encode()).hexdigest()  # noqa: DUO130, E501
 
     # Create index to speed-up filter
-    if not columns_indexed(conn, table, ref_columns):
+    if not columns_indexed(session, table, ref_columns):
         sql = dedent("""
         CREATE INDEX {table}_idx_{hash} ON {table} ({columns})
         """).format(
@@ -318,7 +327,7 @@ def generate_filter(conn, columns, reference, cohort=None, join=None):
             hash=columns_hash,
             columns=", ".join(ref_columns)
         )
-        conn.execute(sql)
+        session.execute(sql)
 
     # Generate EXISTS subqueries
     return dedent("""
@@ -330,7 +339,7 @@ def generate_filter(conn, columns, reference, cohort=None, join=None):
     """).format(
         table=table,
         join="\n".join(
-            generate_join(**join_meta)
+            generate_join(session, **join_meta)
             for join_meta in join or []
         ),
         columns="\nAND ".join(
@@ -485,13 +494,14 @@ def main(args=None):
                 dependencies.add(f"{reference['schema']}.{reference['table']}")
 
     # Retrieve cohort information
+    cohorts = [None]
     for extract_meta in create:
         for filter_ in extract_meta["filters"]:
-            if "cohort" not in filter_:
+            cohort = filter_.get("cohort", None)
+            if cohort in cohorts:
                 continue
-            retrieve_cohort(session, directory, filter_["cohort"])
-            break
-        break
+            retrieve_cohort(session, directory, cohort)
+            cohorts.append(cohort)
 
     # Retrieve information
     exported = {}
