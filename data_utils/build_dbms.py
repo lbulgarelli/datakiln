@@ -415,13 +415,23 @@ def generate_table_data(session, schema, table, filters, export_to=None):
             }
         )
 
+        # Retrieve header
+        header = list(result.keys())
+
+        # In case we are extracted from a versioned database
+        try:
+            idx = header.index("meta_row_id")
+            header.pop(idx)
+        except ValueError:
+            idx = len(header)
+
         # Prepare to export as CSV
         writer = csv.writer(o_file)
-        writer.writerow(result.keys())
+        writer.writerow(header)
 
         # Export to file
         for row in result:
-            writer.writerow(row)
+            writer.writerow(row[:idx] + row[idx+1:])
 
 
 def main(args=None):
