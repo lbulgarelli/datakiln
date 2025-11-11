@@ -163,6 +163,7 @@ def retrieve_cohort(session, directory, cohort):
             uuid=UUID,
             query=file.read()
         ))
+        session.commit()
 
 
 def alias_column(column, default):
@@ -393,6 +394,7 @@ def generate_table_data(session, schema, table, filters, export_to=None):
         )
     )
     session.execute(sql)
+    session.commit()
 
     # Skip retrieval if its not going to be exported
     if not export_to:
