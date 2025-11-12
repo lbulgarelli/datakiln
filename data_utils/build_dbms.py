@@ -117,6 +117,7 @@ def generate_table_meta(meta_dir, table, dialect=None):
 
 
 def retrieve_cohort(session, directory, cohort):
+    # pylint: disable=too-many-locals
     """Retrieve cohort.
 
     :param session: Database Session.
@@ -148,22 +149,27 @@ def retrieve_cohort(session, directory, cohort):
             dtype[col_name] = dialect_type
 
         # Transfer cohort data
+        name = cohort.replace(".", "__")
+        name = f'tmp_{name}_{UUID}'
         cohort = pd.read_sql_table(table, engine, schema)
-        cohort.to_sql(f'tmp_cohort_{UUID}', session.bind, index=False,
+        cohort.to_sql(name, session.bind, index=False,
                       dtype=dtype)
-        return
+        return name
 
     # Otherwise we create it from the cohort SQL file
+    name = cohort.replace(".sql", "")
+    name = f'tmp_{name}_{UUID}'
     with open(directory / 'extract' / cohort, encoding="utf-8") as file:
         session.execute(dedent("""
-        CREATE TABLE tmp_{name}_{uuid} AS
+        CREATE TABLE {name} AS
         {query}
         """).format(
-            name=cohort.replace(".sql", ""),
+            name=name,
             uuid=UUID,
             query=file.read()
         ))
         session.commit()
+    return name
 
 
 def alias_column(column, default):
@@ -309,7 +315,12 @@ def generate_filter(session, columns, reference, cohort=None, join=None):
     :rtype: str
     """
     # Handle table name and cohort filter
-    table = cohort.replace(".sql", "") if cohort else reference["table"]
+    if cohort is None:
+        table = reference["table"]
+    elif cohort.endswith(".sql"):
+        table = cohort[:-4]
+    else:
+        table = cohort.replace(".", "__")
     table = f"tmp_{table}_{UUID}"
 
     # The list may include columns from joined tables, so we
@@ -512,8 +523,8 @@ def main(args=None):
             cohort = filter_.get("cohort", None)
             if cohort in cohorts + [None]:
                 continue
-            retrieve_cohort(session, directory, cohort)
-            cohorts.append(cohort)
+            cohort_name = retrieve_cohort(session, directory, cohort)
+            cohorts.append(cohort_name)
 
     # Retrieve information
     exported = {}
@@ -542,8 +553,7 @@ def main(args=None):
 
     # Drop cohort table
     for cohort in cohorts:
-        table = cohort.replace(".sql", "")
-        session.execute(f"DROP TABLE tmp_{table}_{UUID}")
+        session.execute(f"DROP TABLE {cohort}")
 
     # Skip metadata generation
     if not args.metadata:
