@@ -517,14 +517,14 @@ def main(args=None):
                 dependencies.add(f"{reference['schema']}.{reference['table']}")
 
     # Retrieve cohort information
-    cohorts = []
+    cohorts = {}
     for extract_meta in create:
         for filter_ in extract_meta["filters"]:
             cohort = filter_.get("cohort", None)
-            if cohort in cohorts + [None]:
+            if cohort in list(cohorts) + [None]:
                 continue
             cohort_name = retrieve_cohort(session, directory, cohort)
-            cohorts.append(cohort_name)
+            cohorts[cohort] = cohort_name
 
     # Retrieve information
     exported = {}
@@ -552,7 +552,7 @@ def main(args=None):
         session.execute(f"DROP TABLE tmp_{table}_{UUID}")
 
     # Drop cohort table
-    for cohort in cohorts:
+    for cohort in cohorts.values():
         session.execute(f"DROP TABLE {cohort}")
 
     # Skip metadata generation
