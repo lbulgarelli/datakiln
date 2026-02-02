@@ -736,7 +736,7 @@ class TableMeta(TableBase):
                 artifact_name = artifact_path.name
 
             # Match names
-            if artifact_name == meta_name:
+            if artifact_name.lower() == meta_name:
                 break
         else:
             raise FileNotFoundError(
