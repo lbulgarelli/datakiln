@@ -50,7 +50,7 @@ def get_metadata(session, schema, tables):
     """
     logging.info("RETRIEVING SCHEMA METADATA: %s", schema)
     metadata = MetaData(schema=schema)
-    metadata.reflect(bind=session.bind, only=tables)
+    metadata.reflect(bind=session.bind, only=tables, views=True)
 
     return metadata
 
