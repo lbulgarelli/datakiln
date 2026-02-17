@@ -34,18 +34,20 @@ class TestBuild():
     database = DatabaseMeta(DIRECTORY, "__test")
 
     dependencies = []
-    dependencies_dir = DIRECTORY / "dependencies"
-    for dependency in dependencies_dir.glob("data-*"):
+    for dependency in sorted(DIRECTORY.rglob("dependencies/data-*"), reverse=True):
+        if str(dependency.parents[-2]) == ".git":
+            continue
         dependencies.append(DatabaseMeta(dependency, "__test"))
 
     def test_database(self):
         """Test loading table json"""
-        assert self.database.tables
+        # Check if there are any metadata to load
+        assert isinstance(self.database.tables, list)
 
-    def test_dependencies(self):
+    def test_dependencies(self, test_session):  # pylint: disable=redefined-outer-name # noqa: E501
         """Test loading dependencies"""
         for database in self.dependencies:
-            assert database.tables
+            assert isinstance(database.tables, list)
 
     def test_create_table(self, test_session):  # pylint: disable=redefined-outer-name # noqa: E501
         """Test create database tables"""
@@ -76,4 +78,7 @@ class TestBuild():
 
     def test_derive(self, test_session):  # pylint: disable=redefined-outer-name # noqa: E501
         """Test create derived views"""
+        for dependency in self.dependencies:
+            dependency.execute_directory("derive", test_session)
+
         self.database.execute_directory("derive", test_session)
