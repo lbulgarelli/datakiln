@@ -44,7 +44,7 @@ class TestBuild():
         # Check if there are any metadata to load
         assert isinstance(self.database.tables, list)
 
-    def test_dependencies(self, test_session):  # pylint: disable=redefined-outer-name # noqa: E501
+    def test_dependencies(self):
         """Test loading dependencies"""
         for database in self.dependencies:
             assert isinstance(database.tables, list)
