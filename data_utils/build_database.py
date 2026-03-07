@@ -54,6 +54,7 @@ def main(args=None):
         table.enforce_constraints(session)
         table.load(session)
         table.create_indexes(session)
+        table.create_uniques(session)
         table.create_metadata(session)
         session.commit()
 

@@ -301,6 +301,7 @@ class TableMeta(TableBase):
         super().__init__(**kwargs)
 
         self.primary_key = constraints["primary_key"]
+        self.uniques = constraints.get("uniques", [])
         self.indexes = indexes or []
         self.foreign_keys = []
         self.unpivot_meta = []
@@ -476,6 +477,26 @@ class TableMeta(TableBase):
                          self.name, tuple(index))
             stmt = dedent("""
             CREATE INDEX ON {schema}.{name} ({columns})
+            """).format(
+                schema=self.schema,
+                name=self.name,
+                columns=", ".join(index)
+            )
+            conn.execute(stmt)
+
+    def create_uniques(self, conn):
+        """Create table unique indexes.
+
+        :param conn: SQLAlchemy connection or session.
+        :type conn: sqlalchemy.Engine
+
+        :return: None
+        """
+        for index in self.uniques:
+            logging.info("Table '%s'.'%s': Creating unique index %s.",
+                         self.schema, self.name, tuple(index))
+            stmt = dedent("""
+            CREATE UNIQUE INDEX ON {schema}.{name} ({columns})
             """).format(
                 schema=self.schema,
                 name=self.name,
