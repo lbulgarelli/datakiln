@@ -17,8 +17,9 @@ logging.basicConfig(
     format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
 
 SUPPORTED_EXTENSIONS = {
-    ".csv": partial(pd.read_csv, engine="python"),
-    ".xlsx": partial(pd.read_excel, sheet_name=None)
+    ".csv.gz": partial(pd.read_csv, engine="python", nrows=10000),
+    ".csv": partial(pd.read_csv, engine="python", nrows=10000),
+    ".xlsx": partial(pd.read_excel, sheet_name=None, nrows=10000)
 }
 
 
@@ -133,7 +134,7 @@ def main(args=None):
     # Generate metadata for each data file
     for data_path in directory.glob("data/*.*"):
         # Skip if the extension is not supported
-        extension = data_path.suffix.lower()
+        extension = "".join(data_path.suffixes).lower()
         if extension not in SUPPORTED_EXTENSIONS:
             continue
         logging.info("GENERATING METADATA: %s", data_path)
@@ -147,8 +148,9 @@ def main(args=None):
 
         # Excel files can have more than one sheet
         # so we handle the data as a dictionary
+        table_name = data_path.name[:-len(extension)]
         if isinstance(data, pd.DataFrame):
-            data = {data_path.stem: data}
+            data = {table_name: data}
         # Only consider tables with header row
         # when multiple tables are returned
         elif isinstance(data, dict):
