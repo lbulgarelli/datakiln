@@ -562,7 +562,7 @@ class TableMeta(TableBase):
         WHERE 1 = 1
         AND meta_log IS NULL
         AND (
-             {where_reqs}
+            {where_reqs}
         )
         """).format(
             name=self.name, schema=self.schema,
@@ -574,11 +574,14 @@ class TableMeta(TableBase):
         stmt = dedent("""
         WITH missing_fk AS (
           SELECT {name}.{row_id}
-          from _{schema}.{name}
+          FROM _{schema}.{name}
           {join_fks}
           WHERE {n_fks} > 0
           AND {name}.meta_log IS NULL
-          {null_fks}
+          AND (
+            0 = 1
+            {null_fks}
+          )
         )
         UPDATE _{schema}.{name}
         SET meta_log = 'Constraint violation (foreign key)'
@@ -588,7 +591,7 @@ class TableMeta(TableBase):
             name=self.name, schema=self.schema, row_id=self._row_id,
             join_fks="\n  ".join(chain(*join_fks)),
             n_fks=len(join_fks),
-            null_fks="\n  ".join(chain(*null_fks)),
+            null_fks="\n    ".join(chain(*null_fks)),
         )
         session.execute(stmt, buffer_size=5)
 

@@ -105,10 +105,13 @@ class ForeignKeyMeta():
         :return: Comparisons for each foreign key column.
         :rtype: list[str]
         """
-        conditions = []
+        conditions = ["OR (", "  1 = 1"]
 
         # Generate one comparison statement for each foreign key column
-        for column in self.reference.columns:
-            conditions.append(f"AND {self.reference.table}.{column} IS NULL")
+        for reference, column in zip(self.reference.columns, self.columns):
+            conditions.append(
+                f"  AND {self.reference.table}.{reference}::TEXT "
+                f"IS DISTINCT FROM {self.table.name}.{column}"
+            )
 
-        return conditions
+        return conditions + [")"]
