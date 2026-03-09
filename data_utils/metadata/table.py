@@ -544,7 +544,7 @@ class TableMeta(TableBase):
             typed.append(f"{column.rename}::{column.dtype[dialect]}")
 
             # Add required columns to where statement filtering not null values
-            if not column.required:
+            if not column.required and column.name not in self.primary_key:
                 continue
             where_req.append(f"{self.name}.{column} IS NULL")
 
