@@ -593,27 +593,45 @@ class TableMeta(TableBase):
             n_fks=len(join_fks),
             null_fks="\n    ".join(chain(*null_fks)),
         )
-        session.execute(stmt, buffer_size=5)
+        session.execute(stmt, buffer_size=1)
+
+        # Retrieve max id staged for insert
+        stmt = dedent("""
+        SELECT MAX({row_id})
+        FROM _{schema}.{name}
+        WHERE meta_log IS NULL
+        """).format(
+            name=self.name,
+            schema=self.schema,
+            row_id=self._row_id,
+        )
+        max_row_id = session.execute(stmt, buffer_size=1).first()[0]
 
         # Move rows to final schema
-        stmt = dedent("""
-        INSERT INTO {schema}.{name} (
-            {columns}
-          , {row_id}
-        )
-        SELECT
-            {typed}
-          , {row_id}
-        from _{schema}.{name}
-        WHERE 1 = 1
-        AND meta_log IS NULL
-        ON CONFLICT DO NOTHING
-        """).format(
-            name=self.name, schema=self.schema, row_id=self._row_id,
-            columns="\n  , ".join(columns),
-            typed="\n  , ".join(typed),
-        )
-        session.execute(stmt, buffer_size=5)
+        batch_size = 10000
+        for batch_start in range(0, max_row_id, batch_size):
+            stmt = dedent("""
+            INSERT INTO {schema}.{name} (
+                {columns}
+              , {row_id}
+            )
+            SELECT
+              {typed}
+            , {row_id}
+            from _{schema}.{name}
+            WHERE 1 = 1
+            AND meta_log IS NULL
+            AND {row_id} >  {batch_start}
+            AND {row_id} <= {batch_max}
+            ON CONFLICT DO NOTHING
+            """).format(
+                name=self.name, schema=self.schema, row_id=self._row_id,
+                columns="\n  , ".join(columns),
+                typed="\n  , ".join(typed),
+                batch_start=batch_start,
+                batch_max=batch_start+batch_size
+            )
+            session.execute(stmt, buffer_size=5)
 
         # Deleted moved rows
         stmt = dedent("""
