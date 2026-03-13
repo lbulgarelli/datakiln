@@ -525,7 +525,7 @@ class TableMeta(TableBase):
         )
         conn.execute(stmt)
 
-    def load(self, session):
+    def load(self, session, batch_size=100000):
         """Load data from stage.
 
         :param session: Database Session.
@@ -616,7 +616,6 @@ class TableMeta(TableBase):
         max_row_id = session.execute(stmt, buffer_size=1).first()[0]
 
         # Move rows to final schema
-        batch_size = 10000
         for batch_start in range(0, max_row_id, batch_size):
             stmt = dedent("""
             INSERT INTO {schema}.{name} (
@@ -639,7 +638,7 @@ class TableMeta(TableBase):
                 batch_start=batch_start,
                 batch_max=batch_start+batch_size
             )
-            session.execute(stmt, buffer_size=5)
+            session.execute(stmt, buffer_size=1)
 
         # Deleted moved rows
         stmt = dedent("""
