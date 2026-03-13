@@ -312,7 +312,12 @@ class TableMeta(TableBase):
 
         # Instantiate metadata object for all foreign keys
         for fk in constraints.get("foreign_keys", []):
-            fk_meta = ForeignKeyMeta(table=self, **fk)
+            dtypes = []
+            for column in self.columns:
+                if column.name not in fk["columns"]:
+                    continue
+                dtypes.append(column.dtype)
+            fk_meta = ForeignKeyMeta(table=self, dtypes=dtypes, **fk)
             self.foreign_keys.append(fk_meta)
 
         # Unpivot
@@ -528,12 +533,15 @@ class TableMeta(TableBase):
 
         :return: None
         """
-        # Generate JOIN statements for foreign keys
-        join_fks = list(map(ForeignKeyMeta.join, self.foreign_keys))
-        null_fks = map(ForeignKeyMeta.is_reference_null, self.foreign_keys)
-
         # Get database dialect from connection
         dialect = session.bind.dialect.name
+
+        # Generate JOIN statements for foreign keys
+        join_fks = []
+        null_fks = []
+        for fk in self.foreign_keys:
+            join_fks.append(fk.join(dialect))
+            null_fks.append(fk.distinct_reference(dialect))
 
         typed = []
         columns = []

@@ -27,7 +27,7 @@ class ForeignKeyReference:
 class ForeignKeyMeta():
     """Metadata for foreign key."""
 
-    def __init__(self, table, columns, reference):
+    def __init__(self, table, columns, reference, dtypes=None):
         """
         :param table: Table referencing the foreign key.
         :type table: TableMeta
@@ -44,6 +44,11 @@ class ForeignKeyMeta():
         self.table = table
         self.columns = columns
         self.reference = ForeignKeyReference(**reference)
+        self.dtypes = dtypes
+
+        # Set default dtypes
+        if dtypes is None:
+            self.dtypes = dict.fromkeys(["default"] * len(columns), "TEXT")
 
     def create(self, conn):
         """Create statement.
@@ -65,19 +70,29 @@ class ForeignKeyMeta():
         )
         conn.execute(stmt)
 
-    def _conditions(self):
+    def _conditions(self, dialect="default"):
         """Generate comparisons to match each foreign key column.
 
         :return: Comparisons for each foreign key column.
         :rtype: list[str]
+
+        :param dialect: Dialect of the database.
+        :type dialect: str
         """
         conditions = []
 
+        # Zip column pair together along with data type
+        column_pair = zip(
+            self.columns,
+            self.reference.columns,
+            self.dtypes
+        )
+
         # Generate one comparison statement for each foreign key column
-        for column, o_column in zip(self.columns, self.reference.columns):
+        for column, reference, dtype in column_pair:
             conditions.append(
-                f"  AND {self.table.name}.{column} = "
-                f"{self.reference.table}.{o_column}::TEXT"
+                f"  AND {self.table.name}.{column}::{dtype[dialect]} = "
+                f"{self.reference.table}.{reference}"
             )
 
         # Remove AND clause from first comparison
@@ -85,33 +100,47 @@ class ForeignKeyMeta():
 
         return conditions
 
-    def join(self):
+    def join(self, dialect="default"):
         """Generate JOIN statement for the foreign key.
 
         :return: JOIN statement.
         :rtype: list[str]
+
+        :param dialect: Dialect of the database.
+        :type dialect: str
         """
         join = [f"LEFT JOIN {self.reference.schema}.{self.reference.table}"]
-        join.extend(self._conditions())
+        join.extend(self._conditions(dialect=dialect))
 
         # Add ON clause to first comparison
         join[1] = "  ON" + join[1]
 
         return join
 
-    def is_reference_null(self):
-        """Check if foreign column is null.
+    def distinct_reference(self, dialect="default"):
+        """Filter foreign key values that do not exist in the reference tables,
+        allowing null values.
 
         :return: Comparisons for each foreign key column.
         :rtype: list[str]
+
+        :param dialect: Dialect of the database.
+        :type dialect: str
         """
         conditions = ["OR (", "  1 = 1"]
 
+        # Zip column pair together along with data type
+        column_pair = zip(
+            self.columns,
+            self.reference.columns,
+            self.dtypes
+        )
+
         # Generate one comparison statement for each foreign key column
-        for reference, column in zip(self.reference.columns, self.columns):
+        for column, reference, dtype in column_pair:
             conditions.append(
-                f"  AND {self.reference.table}.{reference}::TEXT "
-                f"IS DISTINCT FROM {self.table.name}.{column}"
+                f"  AND {self.reference.table}.{reference} IS DISTINCT FROM "
+                f"{self.table.name}.{column}::{dtype[dialect]}"
             )
 
         return conditions + [")"]
