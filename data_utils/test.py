@@ -34,7 +34,8 @@ class TestBuild():
     database = DatabaseMeta(DIRECTORY, "__test")
 
     dependencies = []
-    for dependency in sorted(DIRECTORY.rglob("dependencies/data-*"), reverse=True):
+    dependencies_dirs = DIRECTORY.rglob("dependencies/data-*")
+    for dependency in sorted(dependencies_dirs, reverse=True):
         if str(dependency.parents[-2]) == ".git":
             continue
         dependencies.append(DatabaseMeta(dependency, "__test"))
