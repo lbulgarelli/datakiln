@@ -75,6 +75,8 @@ class TestBuild():
         """Test enforcing contraints"""
         for table in self.database.tables:
             table.enforce_constraints(test_session)
+            table.create_uniques(test_session)
+            table.create_indexes(test_session)
 
     def test_derive(self, test_session):  # pylint: disable=redefined-outer-name # noqa: E501
         """Test create derived views"""
