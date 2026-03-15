@@ -70,7 +70,7 @@ class ForeignKeyMeta():
         )
         conn.execute(stmt)
 
-    def _conditions(self, dialect="default"):
+    def _conditions(self, alias=None, dialect="default"):
         """Generate comparisons to match each foreign key column.
 
         :return: Comparisons for each foreign key column.
@@ -89,10 +89,11 @@ class ForeignKeyMeta():
         )
 
         # Generate one comparison statement for each foreign key column
+        alias = alias or self.reference.table
         for column, reference, dtype in column_pair:
             conditions.append(
                 f"  AND {self.table.name}.{column}::{dtype[dialect]} = "
-                f"{self.reference.table}.{reference}"
+                f"{alias}.{reference}"
             )
 
         # Remove AND clause from first comparison
@@ -100,7 +101,7 @@ class ForeignKeyMeta():
 
         return conditions
 
-    def join(self, dialect="default"):
+    def join(self, alias=None, dialect="default"):
         """Generate JOIN statement for the foreign key.
 
         :return: JOIN statement.
@@ -110,14 +111,17 @@ class ForeignKeyMeta():
         :type dialect: str
         """
         join = [f"LEFT JOIN {self.reference.schema}.{self.reference.table}"]
-        join.extend(self._conditions(dialect=dialect))
+        join.extend(self._conditions(alias=alias, dialect=dialect))
+
+        if alias:
+            join[0] += f" {alias}"
 
         # Add ON clause to first comparison
         join[1] = "  ON" + join[1]
 
         return join
 
-    def distinct_reference(self, dialect="default"):
+    def distinct_reference(self, alias=None, dialect="default"):
         """Filter foreign key values that do not exist in the reference tables,
         allowing null values.
 
@@ -137,9 +141,10 @@ class ForeignKeyMeta():
         )
 
         # Generate one comparison statement for each foreign key column
+        alias = alias or self.reference.table
         for column, reference, dtype in column_pair:
             conditions.append(
-                f"  AND {self.reference.table}.{reference} IS DISTINCT FROM "
+                f"  AND {alias}.{reference} IS DISTINCT FROM "
                 f"{self.table.name}.{column}::{dtype[dialect]}"
             )
 

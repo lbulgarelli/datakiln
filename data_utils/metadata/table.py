@@ -539,9 +539,9 @@ class TableMeta(TableBase):
         # Generate JOIN statements for foreign keys
         join_fks = []
         null_fks = []
-        for fk in self.foreign_keys:
-            join_fks.append(fk.join(dialect))
-            null_fks.append(fk.distinct_reference(dialect))
+        for idx, fk in enumerate(self.foreign_keys):
+            join_fks.append(fk.join(f"fk_{idx}", dialect))
+            null_fks.append(fk.distinct_reference(f"fk_{idx}", dialect))
 
         typed = []
         columns = []
