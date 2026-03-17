@@ -23,6 +23,11 @@ logging.basicConfig(
     level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S",
     format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s")
 
+DRIVER = {
+    "postgresql": "psycopg2",
+    "oracle": "oracledb"
+}
+
 
 class DatabaseMeta():
     """Database metadata."""
@@ -278,7 +283,7 @@ class Session(SQLAlchemySession):
         :rtype: data_utils.metadata.database.Session
         """
         url_object = URL.create(
-            dialect,
+            f"{dialect}+{DRIVER[dialect]}",
             username=user,
             password=password,
             host=host,
