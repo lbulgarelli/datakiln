@@ -6,9 +6,9 @@ from pathlib import Path
 from getpass import getuser
 from textwrap import dedent
 
-import sqlparse
+import sqlglot
+from sqlglot import exp
 from dvc.api import DVCFileSystem
-from sqlparse.sql import Statement, Identifier
 from sqlalchemy.orm.session import Session as SQLAlchemySession
 from sqlalchemy import create_engine, text, URL
 from sqlalchemy.exc import ProgrammingError
@@ -190,6 +190,11 @@ class Session(SQLAlchemySession):
     """Manages persistence operations for ORM-mapped objects.
     """
 
+    DIALECT_MAP = {
+        "postgresql": "postgres",
+        "mssql": "tsql"
+    }
+
     def __init__(self, **kwargs):
         r"""
         :param \**kwargs: SQLAlchemy session attributes.
@@ -201,9 +206,6 @@ class Session(SQLAlchemySession):
         """
         self._buffer = []
         super().__init__(**kwargs)
-
-    def _is_identifier(self, token):
-        return isinstance(token, Identifier) and token.value != 'MATERIALIZED'
 
     def execute(self, statement, *args, buffer_size=1, max_statements=1,
                 **kwargs):
@@ -228,22 +230,52 @@ class Session(SQLAlchemySession):
         if not isinstance(statement, str):
             return super().execute(statement, *args, **kwargs)
 
-        parsed = sqlparse.parse(statement)
-        stmt_types = list(map(Statement.get_type, parsed))
-        if (
-            len(parsed) > max_statements > 0
-            and set(stmt_types) != {"DROP", "CREATE"}
-        ):
-            raise ValueError(
-                f"Only {max_statements} SQL statement(s) allowed per file.")
+        # Map dialects between SQLAlchemy and SQLGlot
+        dialect = self.get_bind().dialect.name
+        expressions = sqlglot.parse(
+            statement,
+            read=self.DIALECT_MAP.get(dialect, dialect)
+        )
 
-        # For DROP, CREATE pairs, validate the same identifier is used
-        if stmt_types == ["DROP", "CREATE"]:
-            id_drop = parsed[0].token_matching(self._is_identifier, 0)
-            id_create = parsed[1].token_matching(self._is_identifier, 0)
-
-            if id_drop.value != id_create.value:
-                raise ValueError("DROP/CREATE have distinct identifiers.")
+        # Validate expression sets
+        match expressions:
+            # DROP/CREATE pairs
+            case [exp.Drop() as drop, exp.Create() as create]:
+                # Should drop and create same object (kind)
+                if drop.kind != create.kind:
+                    raise ValueError("DROP/CREATE have distinct types.")
+                # Should drop and create same object (name)
+                if drop.this.parts != create.this.parts:
+                    raise ValueError("DROP/CREATE have distinct identifiers.")
+            # CREATE INDEX lists
+            case [exp.Create(kind="INDEX") as index, *rest]:
+                table = index.find(exp.Table)
+                column_sets = [tuple(index.find_all(exp.Column))]
+                # Sanity checks
+                for expression in rest:
+                    # Expressions other than CREATE INDEX
+                    signature = (type(expression), expression.kind)
+                    if signature != (exp.Create, "INDEX"):
+                        raise ValueError(
+                            "Indexes should be created in a separate file."
+                        )
+                    # Multiple tables
+                    if expression.find(exp.Table) != table:
+                        raise ValueError(
+                            "Only group indexes for the same table."
+                        )
+                    column_set = tuple(expression.find_all(exp.Column))
+                    column_sets.append(column_set)
+                # Multiple indexes for same column set
+                if len(set(column_sets)) != len(column_sets):
+                    raise ValueError(
+                        "Multiple indexes on the same set of columns."
+                    )
+            # Otherwise we only allow max_statements per file
+            case _ if len(expressions) > max_statements > 0:
+                raise ValueError(
+                    f"Only {max_statements} SQL statement(s) allowed per file."
+                )
 
         # Add to buffer
         self._buffer.append(statement)

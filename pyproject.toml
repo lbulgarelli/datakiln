@@ -22,7 +22,7 @@ dependencies = [
     "psycopg2-binary>=2.9",
     "pycap>=2.6.0",
     "sqlalchemy-utils>=0.41.2",
-    "sqlparse>=0.5.3",
+    "sqlglot>=30.0.1",
     "dvc[ssh]>=3.60.1",
     "paramiko>=4.0.0"
 ]
