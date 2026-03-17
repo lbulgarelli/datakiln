@@ -14,20 +14,15 @@ from itertools import repeat
 from getpass import getpass, getuser
 
 import pandas as pd
-from sqlalchemy import inspect, MetaData
+from sqlalchemy import inspect, MetaData, Table, Column
 from sqlalchemy.dialects import registry
 
-from data_utils.metadata.database import DatabaseMeta, Session
+from data_utils.metadata.database import DatabaseMeta, Session, DRIVER
 from data_utils.build_metadata import get_parser
 
 logging.basicConfig(
     level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',
     format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
-
-DRIVER = {
-    "postgresql": "psycopg2",
-    "oracle": "oracledb"
-}
 
 # Generate an UUID for the run
 UUID = str(uuid4()).rsplit("-", maxsplit=1)[-1]
@@ -55,7 +50,7 @@ def get_metadata(session, schema, tables):
     return metadata
 
 
-def generate_column_meta(column, dialect=None):
+def generate_column_meta(column, dialect=None, compile=True):
     """Generate column metadata from DBMS.
 
     :param column: Column metadata.
@@ -74,7 +69,7 @@ def generate_column_meta(column, dialect=None):
     return {
         "name": column.name,
         "dtype": {
-            dialect: dialect_type.compile()
+            dialect: dialect_type.compile() if compile else dialect_type
         }
     }
 
@@ -135,25 +130,50 @@ def retrieve_cohort(session, directory, cohort):
     if not cohort.endswith(".sql"):
         # Connect to source (build) database
         db_params = DatabaseMeta.load_env(directory)
-        engine = Session.create(**db_params).bind
+        source_engine = Session.create(**db_params).get_bind()
         schema, table = cohort.split(".")
 
-        # Retrieve data types
-        dtype = {}
-        inspector = inspect(engine)
-        for col_info in inspector.get_columns(table, schema=schema):
-            col_name = col_info["name"]
-            col_type = col_info["type"]
-            dialect_obj = registry.load(session.bind.dialect.name)
-            dialect_type = col_type.dialect_impl(dialect_obj())
-            dtype[col_name] = dialect_type
+        # Reflect source metadata
+        source_meta = MetaData()
+        source_table = Table(
+            table,
+            source_meta,
+            schema=schema,
+            autoload_with=source_engine
+        )
 
-        # Transfer cohort data
+        # Translate column types
+        dest_columns = []
+        dest_engine = session.get_bind()
+        for column in source_table.columns:
+            # Parse column type
+            dialect = dest_engine.dialect.name
+            col_meta = generate_column_meta(
+                column,
+                dialect=dialect,
+                compile=False
+            )
+
+            # Generate new column object
+            dest_columns.append(Column(
+                col_meta["name"],
+                col_meta["dtype"][dialect]
+            ))
+
+        # Create table in destination
         name = cohort.replace(".", "__")
         name = f'tmp_{name}_{UUID}'
-        cohort = pd.read_sql_table(table, engine, schema)
-        cohort.to_sql(name, session.bind, index=False,
-                      dtype=dtype)
+        dest_meta = MetaData()
+        dest_table = Table(
+            name,
+            dest_meta,
+            *dest_columns
+        )
+        dest_table.create(dest_engine)
+
+        # Transfer cohort data
+        cohort = pd.read_sql_table(table, source_engine, schema)
+        cohort.to_sql(name, dest_engine, index=False, if_exists='append')
         return name
 
     # Otherwise we create it from the cohort SQL file
