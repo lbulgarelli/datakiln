@@ -525,7 +525,7 @@ class TableMeta(TableBase):
         )
         conn.execute(stmt)
 
-    def load(self, session, batch_size=100000):
+    def load(self, session, batch_size=1000000):
         """Load data from stage.
 
         :param session: Database Session.
