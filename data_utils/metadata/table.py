@@ -447,8 +447,8 @@ class TableMeta(TableBase):
         )
         session.execute(stmt)
 
-    def enforce_constraints(self, session):
-        """Enforce table constraints.
+    def resolve_columns(self, session):
+        """Resolve NULL values and apply description/comment.
 
         :param session: Database Session.
         :type session: data_utils.metadata.database.Session
@@ -465,6 +465,14 @@ class TableMeta(TableBase):
             # Add comment to columns
             column.comment(session, self.schema, self.name)
 
+    def enforce_fks(self, session):
+        """Enforce foreign key constraints.
+
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
+
+        :return: None
+        """
         # Enforce foreign keys
         for fk in self.foreign_keys:
             fk.create(session)

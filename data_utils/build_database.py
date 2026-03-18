@@ -51,10 +51,11 @@ def main(args=None):
 
     # Load to final schema and flush to database
     for table in updated:
-        table.enforce_constraints(session)
-        table.load(session)
-        table.create_indexes(session)
+        table.resolve_columns(session)
         table.create_uniques(session)
+        table.load(session)
+        table.enforce_fks(session)
+        table.create_indexes(session)
         table.create_metadata(session)
         session.commit()
 
