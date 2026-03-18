@@ -455,7 +455,7 @@ class TableMeta(TableBase):
 
         :return: None
         """
-        logging.info("Table '%s'.'%s': Enforcing constraints.", self.schema,
+        logging.info("Table '%s'.'%s': Resolving NULL values.", self.schema,
                      self.name)
         # Enforce constraints
         for column in self.columns:
@@ -473,6 +473,8 @@ class TableMeta(TableBase):
 
         :return: None
         """
+        logging.info("Table '%s'.'%s': Enforcing foreign keys.", self.schema,
+                     self.name)
         # Enforce foreign keys
         for fk in self.foreign_keys:
             fk.create(session)
