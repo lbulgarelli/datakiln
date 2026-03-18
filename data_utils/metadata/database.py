@@ -69,15 +69,15 @@ class DatabaseMeta():
             tables.append(TableMeta.from_json(meta_path, data_repo))
         return tables
 
-    def grant(self, conn, users=None):
+    def grant(self, session, users=None):
         """Grants read on all objects in database.
 
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
         """
         # Iterates all schemas in database and grant
         # read permissions to database role
-        conn.execute(dedent(f"""
+        session.execute(dedent(f"""
         DO $do$
         DECLARE
         schema TEXT;
@@ -95,11 +95,11 @@ class DatabaseMeta():
             EXECUTE format($$ GRANT SELECT ON ALL TABLES IN SCHEMA %I TO {self.name} $$, schema);
         END LOOP;
         END;
-        $do$;"""))  # noqa: E501
+        $do$;"""), validate=False)  # noqa: E501
 
         # Grant permissions to users by proxy of the database role
         if users:
-            conn.execute(dedent("""
+            session.execute(dedent("""
             GRANT {role} TO "{users}"
             """).format(
                 role=self.name,
@@ -208,7 +208,7 @@ class Session(SQLAlchemySession):
         super().__init__(**kwargs)
 
     def execute(self, statement, *args, buffer_size=1, max_statements=1,
-                **kwargs):
+                validate=True, **kwargs):
         r"""Executes a SQL statement construct and returns a CursorResult.
 
         :param statement: Statement to be executed.
@@ -228,6 +228,9 @@ class Session(SQLAlchemySession):
         :type \**kwargs: dict
         """
         if not isinstance(statement, str):
+            return super().execute(statement, *args, **kwargs)
+        elif not validate:
+            statement = text(statement)
             return super().execute(statement, *args, **kwargs)
 
         # Map dialects between SQLAlchemy and SQLGlot
