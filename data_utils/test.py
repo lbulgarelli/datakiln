@@ -73,10 +73,11 @@ class TestBuild():
             "transform", test_session, max_statements=0)
 
     def test_constraints(self, test_session):  # pylint: disable=redefined-outer-name # noqa: E501
-        """Test enforcing contraints"""
+        """Test enforcing constraints"""
         for table in self.database.tables:
-            table.enforce_constraints(test_session)
+            table.resolve_columns(test_session)
             table.create_uniques(test_session)
+            table.enforce_fks(test_session)
             table.create_indexes(test_session)
 
     def test_derive(self, test_session):  # pylint: disable=redefined-outer-name # noqa: E501
