@@ -2,9 +2,32 @@
 Helpers to read multiple data file extensions.
 """
 import warnings
-from io import BytesIO, TextIOWrapper
+from io import BytesIO, TextIOWrapper, IOBase
 
 import pandas as pd
+
+
+class NullStripper(IOBase):
+    """
+    Remove NULL characters
+    """
+    def __init__(self, target):
+        self.target = target
+
+    def read(self, size=-1):
+        """
+        Read
+        """
+        # Read a chunk from the original buffer (e.g., StringIO)
+        chunk = self.target.read(size)
+        if chunk is None:
+            return None
+
+        # Remove the null bytes from the chunk and return it
+        return chunk.replace('\x00', '')
+
+    def readable(self):
+        return True
 
 
 def open_excel(path, encoding):

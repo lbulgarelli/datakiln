@@ -23,7 +23,7 @@ from sqlalchemy.orm import (
     relationship
 )
 
-from data_utils.io import open_excel
+from data_utils.io import open_excel, NullStripper
 from data_utils.metadata.column import ColumnMeta
 from data_utils.metadata.location import SSHLocation
 from data_utils.metadata.foreign_key import ForeignKeyMeta
@@ -276,7 +276,7 @@ class StageMeta(TableBase):
 
             # Execute and copy from file
             cursor = session.connection().connection.cursor()
-            cursor.copy_expert(stmt, buffer)
+            cursor.copy_expert(stmt, NullStripper(buffer))
             buffer.close()
 
 
