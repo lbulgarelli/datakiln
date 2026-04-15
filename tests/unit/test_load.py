@@ -81,8 +81,11 @@ class TestBuild():
         """Test loading to final table"""
         for table in database.tables:
             # Load data
-            table.enforce_constraints(test_session)
+            table.resolve_columns(test_session)
+            table.create_uniques(test_session)
             table.load(test_session)
+            table.enforce_fks(test_session)
+            table.create_indexes(test_session)
             test_session.flush()
 
             # Get counts from csv
