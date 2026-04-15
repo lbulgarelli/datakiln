@@ -50,7 +50,7 @@ def get_metadata(session, schema, tables):
     return metadata
 
 
-def generate_column_meta(column, dialect=None, compile=True):
+def generate_column_meta(column, dialect=None, compile_type=True):
     """Generate column metadata from DBMS.
 
     :param column: Column metadata.
@@ -69,7 +69,7 @@ def generate_column_meta(column, dialect=None, compile=True):
     return {
         "name": column.name,
         "dtype": {
-            dialect: dialect_type.compile() if compile else dialect_type
+            dialect: dialect_type.compile() if compile_type else dialect_type
         }
     }
 
@@ -151,7 +151,7 @@ def retrieve_cohort(session, directory, cohort):
             col_meta = generate_column_meta(
                 column,
                 dialect=dialect,
-                compile=False
+                compile_type=False
             )
 
             # Generate new column object
