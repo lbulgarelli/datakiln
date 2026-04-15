@@ -209,6 +209,7 @@ class Session(SQLAlchemySession):
 
     def execute(self, statement, *args, buffer_size=1, max_statements=1,
                 validate=True, **kwargs):
+        # pylint: disable=too-many-locals
         r"""Executes a SQL statement construct and returns a CursorResult.
 
         :param statement: Statement to be executed.
@@ -227,9 +228,12 @@ class Session(SQLAlchemySession):
         :param \**kwargs: SQLAlchemy execute parameters.
         :type \**kwargs: dict
         """
+        # If statement is not a SQL string, let sqlalchemy handle it
         if not isinstance(statement, str):
             return super().execute(statement, *args, **kwargs)
-        elif not validate:
+
+        # Skip validation
+        if not validate:
             statement = text(statement)
             return super().execute(statement, *args, **kwargs)
 
