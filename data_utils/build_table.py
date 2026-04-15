@@ -19,22 +19,24 @@ def main(args=None):
 
     # Connect to database
     db_params = Session.load_env(meta_path.parents[1])
-    conn = Session.create(**db_params)
+    session = Session.create(**db_params)
 
     # Stage and flush to database
-    table = TableMeta.from_json(meta_path, conn)
-    table.create(conn)
-    table.stage_meta.load(conn)
-    conn.flush()
+    table = TableMeta.from_json(meta_path, session)
+    table.create(session)
+    table.stage_meta.load(session)
+    session.flush()
 
     # Load to final schema and commit changes
-    table.enforce_constraints(conn)
-    table.load(conn)
-    table.create_indexes(conn)
-    conn.commit()
+    table.resolve_columns(session)
+    table.create_uniques(session)
+    table.load(session)
+    table.enforce_fks(session)
+    table.create_indexes(session)
+    session.commit()
 
     # Close connection
-    conn.close()
+    session.close()
 
 
 if __name__ == "__main__":
