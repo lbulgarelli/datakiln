@@ -536,6 +536,7 @@ class TableMeta(TableBase):
         conn.execute(stmt)
 
     def load(self, session, batch_size=1000000):
+        # pylint: disable=too-many-locals
         """Load data from stage.
 
         :param session: Database Session.

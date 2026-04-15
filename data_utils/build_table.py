@@ -28,6 +28,7 @@ def main(args=None):
     session.flush()
 
     # Load to final schema and commit changes
+    # pylint: disable=R0801
     table.resolve_columns(session)
     table.create_uniques(session)
     table.load(session)
