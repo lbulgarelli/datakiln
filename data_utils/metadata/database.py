@@ -7,10 +7,11 @@ from getpass import getuser
 from textwrap import dedent
 
 import sqlglot
+import sqlparse
 from sqlglot import exp
 from dvc.api import DVCFileSystem
 from sqlalchemy.orm.session import Session as SQLAlchemySession
-from sqlalchemy import create_engine, text, URL
+from sqlalchemy import create_engine, text, URL, event, Engine
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.schema import CreateSchema
 from decouple import Config, RepositoryEnv
@@ -181,8 +182,47 @@ class DatabaseMeta():
         db_params["port"] = env_config("DB_PORT", "5432")
         db_params["database"] = env_config("DB_NAME", "postgres")
         db_params["dialect"] = env_config("DB_DIALECT", "postgresql")
+        db_params["isolation_level"] = env_config(
+            "DB_ISOLATION_LEVEL",
+            "READ COMMITTED"
+        )
 
         return db_params
+
+
+@event.listens_for(Engine, "before_cursor_execute", retval=True)
+def before_cursor_execute(conn, cursor, statement, parameters, context,
+                          executemany):
+    # pylint: disable=too-many-arguments, too-many-positional-arguments
+    # pylint: disable=unused-argument, broad-exception-caught
+    """Format SQL query before execution."""
+    try:
+        statement = sqlparse.format(
+            statement,
+            reindent_aligned=True,
+            keyword_case="upper"
+        )
+    except Exception:
+        pass
+    return statement, parameters
+
+
+@event.listens_for(Engine, "connect")
+def set_oracle_nls(dbapi_connection, _connection_record):
+    """Set standard NLS date/timestamp formats on Oracle connections."""
+    oracle_drivers = ("oracledb", "cx_Oracle")
+    if dbapi_connection.__class__.__module__.startswith(oracle_drivers):
+        cursor = dbapi_connection.cursor()
+        try:
+            formats = [
+                ("NLS_DATE_FORMAT", "YYYY-MM-DD HH24:MI:SS"),
+                ("NLS_TIMESTAMP_FORMAT", "YYYY-MM-DD HH24:MI:SS"),
+                ("NLS_TIMESTAMP_TZ_FORMAT", "YYYY-MM-DD HH24:MI:SSXFF TZR"),
+            ]
+            for param, value in formats:
+                cursor.execute(f"ALTER SESSION SET {param} = '{value}'")
+        finally:
+            cursor.close()
 
 
 class Session(SQLAlchemySession):
@@ -296,7 +336,16 @@ class Session(SQLAlchemySession):
         return super().execute(text(statement), *args, **kwargs)
 
     @classmethod
-    def create(cls, user, host, port, database, dialect, password=None):
+    def create(
+        cls,
+        user,
+        host,
+        port,
+        database,
+        dialect,
+        password=None,
+        isolation_level="READ COMMITTED"
+    ):
         # pylint: disable=too-many-arguments, too-many-positional-arguments
         """Connect to database using SQLAlchemy.
 
@@ -318,6 +367,9 @@ class Session(SQLAlchemySession):
         :param password: User's password.
         :type password: str
 
+        :param isolation_level: Transaction isolation level.
+        :type isolation_level: str
+
         :return: Database session.
         :rtype: data_utils.metadata.database.Session
         """
@@ -329,9 +381,10 @@ class Session(SQLAlchemySession):
             database=database,
             port=port
         )
+
         engine = create_engine(
             url_object,
-            isolation_level="SERIALIZABLE",
+            isolation_level=isolation_level,
             pool_recycle=60,
             pool_pre_ping=True
         )
