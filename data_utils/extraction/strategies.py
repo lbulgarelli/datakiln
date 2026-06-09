@@ -534,11 +534,15 @@ class StreamStrategy(ExecutionStrategy):
 
         # Check if the cohort is an extraction task in the graph
         if self.graph and cohort in self.graph.tasks:
-            # Find the file path
+            # Determine the file path
             table = self.graph.tasks[cohort].table
-            for csv_path in (self.directory / "data").rglob(f"{table}.csv.gz"):
-                break
+            temp_name = f"tmp_{table}_{UUID}"
+            if temp_name in self.created_tables:
+                csv_path = self.directory / "data" / ".tmp" / f"{table}.csv.gz"
             else:
+                csv_path = self.directory / "data" / f"{table}.csv.gz"
+
+            if not csv_path.exists():
                 raise FileNotFoundError(f"Missing file for '{cohort}'")
 
             # Read and hash the compressed file on-the-fly
