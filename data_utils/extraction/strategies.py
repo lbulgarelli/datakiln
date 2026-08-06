@@ -295,17 +295,16 @@ class TempTableStrategy(ExecutionStrategy):
 
             return name
 
+        # Load cohort query
         cohort_path = self.directory / 'extract' / cohort
         with open(cohort_path, encoding="utf-8") as file:
             query = text(file.read().strip())
 
-        db_params = DatabaseMeta.load_env(self.directory)
-        with Session.create(**db_params) as source_session:
-            cohort_data = pd.read_sql_query(query, source_session.bind)
-
+        # Write cohort data to temp table
         self.cohorts[cohort] = name
+        self.created_tables.add(name)
         with self.session() as session:
-            # Load cohort data and write to destination table
+            cohort_data = pd.read_sql_query(query, session.bind)
             cohort_data.to_sql(
                 name, session.bind, index=False, if_exists='fail'
             )
