@@ -200,13 +200,18 @@ class ColumnPair:
         :return: Appropriate :class:`ColumnPair` subclass instance.
         :rtype: ColumnPair
         """
+        # Handle constant filters (i.e., columns without an alias)
         if "." not in left:
             return ConstantFilter(left, right)
         if "." not in right:
             # normalise: value always left
             return ConstantFilter(right, left)  # pylint: disable=arguments-out-of-order # noqa: E501
+
+        # Handle seed columns (i.e., columns from the root cohort table)
         if left.startswith(f"{cohort_alias}."):
             return SeedPair(left, right)
+
+        # Handle cross columns (i.e., columns from other reference tables)
         return CrossPair(left, right)
 
     def to_onclause(self, cohort_alias: str, ref_alias: str) -> str:
