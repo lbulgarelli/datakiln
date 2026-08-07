@@ -394,6 +394,7 @@ class JoinChain:
         :type chunk: list
 
         :param session: Active SQLAlchemy session.
+        :type session: Session
 
         :return: All matching rows from the remote tables.
         :rtype: list
@@ -428,23 +429,24 @@ class StreamStrategy(ExecutionStrategy):
 
     def execute(self, task: ExtractMeta, export_to: Optional[Path] = None):
         """Execute extraction by streaming and filtering in memory."""
-        if not export_to:
-            export_to = self.directory / "data" / ".tmp"
-            export_to.mkdir(exist_ok=True)
-            self.created_tables.add(task.temp_name)
+        target_dir = export_to or (self.directory / "data" / ".tmp")
+        target_dir.mkdir(parents=True, exist_ok=True)
 
         logging.info("EXTRACTING TABLE: %s", task.name)
 
         with self.session() as session:
             # Export to a CSV file
             queries = self.build_queries(task)
-            export_path = export_to / f"{task.table}.csv.gz"
+            export_path = target_dir / f"{task.table}.csv.gz"
             self.csv_hashes[task.name] = DataExporter.stream_to_csv(
                 session,
                 queries,
                 export_path,
                 table_name=task.table
             )
+
+        if export_to is None:
+            self.created_tables.add(task.temp_name)
 
     def drop_table(self, name: str):
         """Clean up temporary files."""
