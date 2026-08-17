@@ -115,7 +115,7 @@ class QueryDirector:
         for filter_config in task.filters:
             if strategy.is_read_only and not filter_config.is_sql_cohort:
                 # Fetch seeds locally, push as chunked IN filter
-                cohort_data = strategy.get_cohort_set(filter_config)
+                cohort_data = strategy.get_cohort_set(filter_config, task=task)
                 filters.append((filter_config, cohort_data))
             else:
                 # Ensure index

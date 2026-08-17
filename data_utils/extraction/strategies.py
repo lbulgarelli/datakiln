@@ -342,7 +342,12 @@ class JoinChain:
         self._from_clause = None
 
     @classmethod
-    def build(cls, filter_config: 'FilterConfig', engine) -> "JoinChain":
+    def build(
+        cls,
+        filter_config: 'FilterConfig',
+        engine,
+        task: 'ExtractMeta'
+    ) -> "JoinChain":
         """Build and return a fully resolved chain for *filter_config*.
 
         :param filter_config: Filter configuration describing the join chain.
@@ -350,12 +355,36 @@ class JoinChain:
 
         :param engine: SQLAlchemy engine used to reflect remote tables.
 
+        :param task: Extraction task metadata.
+        :type task: ExtractMeta
+
         :return: Populated :class:`JoinChain` ready to execute seed chunks.
         :rtype: JoinChain
         """
+        # Initialize join chain
         chain_ = cls(filter_config, engine)
+
+        # Create aliased source table for the chain
+        src = Table(
+            task.table,
+            MetaData(),
+            schema=task.schema,
+            autoload_with=engine
+        ).alias("src")
+        chain_._from_clause = src
+
+        # Resolve column types and seed joins from the filter config
+        for name in filter_config.cohort_columns:
+            col = src.c.get(name, src.c.get(name.upper()))
+            if col is None:
+                continue
+            chain_._cohort_types[name] = col.type
+            chain_._seed_joins.append((col, name))
+
+        # Extend join chain with subsequent joins
         for j_conf in filter_config.join:
             chain_._extend(j_conf)
+
         return chain_
 
     def _extend(self, j_conf):
@@ -490,12 +519,16 @@ class StreamStrategy(ExecutionStrategy):
     def get_cohort_set(
         self,
         filter_config: FilterConfig,
+        task: 'ExtractMeta',
         chunk_size: int = 10000
     ) -> List[Tuple[str, ...]]:
         """Load cohort data into memory.
 
         :param filter_config: Filter configuration.
         :type filter_config: FilterConfig
+
+        :param task: Extraction task metadata.
+        :type task: ExtractMeta
 
         :param chunk_size: Size of chunks to retrieve.
         :type chunk_size: int
@@ -512,7 +545,7 @@ class StreamStrategy(ExecutionStrategy):
         if not filter_config.join:
             return list(dict.fromkeys(chain.from_iterable(seed_chunks)))
 
-        chain_obj = JoinChain.build(filter_config, self.engine)
+        chain_obj = JoinChain.build(filter_config, self.engine, task=task)
         final_tuples = set()
         for chunk in seed_chunks:
             with self.session() as session:
