@@ -20,7 +20,6 @@ from sqlalchemy import (
 )
 
 if TYPE_CHECKING:
-    from data_utils.metadata.database import Session
     from data_utils.extraction.strategies import ExecutionStrategy
 
 
@@ -427,13 +426,9 @@ class FilterConfig:
 
     def to_exists(
         self,
-        session: 'Session',
         strategy: 'ExecutionStrategy'
     ) -> Any:
         """Generate a SQLAlchemy EXISTS subquery for this filter configuration.
-
-        :param session: SQLAlchemy database session.
-        :type session: Session
 
         :param strategy: Execution strategy (used to resolve cohort aliases).
         :type strategy: ExecutionStrategy
