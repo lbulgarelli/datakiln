@@ -15,7 +15,7 @@ from typing import (
 )
 
 from sqlalchemy import (
-    inspect, select, exists, literal, and_, or_, false, text,
+    select, exists, literal, and_, or_, false, text,
     Table, MetaData
 )
 
@@ -331,24 +331,21 @@ class JoinConfig:
         """Pairs that join two remote aliased columns."""
         return (p for p in self.pairs if isinstance(p, CrossPair))
 
-    def to_join(self, session: 'Session', uuid: str):
+    def to_join(self, cohorts: Dict[str, str]):
         """Return the resolved table name to join against.
 
         Prefers the temporary table created during this run if it exists,
         otherwise falls back to the permanent schema-qualified table name.
 
-        :param session: SQLAlchemy database session.
-        :type session: Session
-
-        :param uuid: Unique run identifier.
-        :type uuid: str
+        :param cohorts: Mapping of task name -> created temp table name,
+                        as maintained by the active ExecutionStrategy.
+        :type cohorts: dict[str, str]
 
         :return: Resolved table name string (used to build SA TableClause).
         :rtype: str
         """
-        tmp = f"tmp_{self.reference.table}_{uuid}"
-        if inspect(session.bind).has_table(tmp):
-            return tmp
+        if self.reference.full_name in cohorts:
+            return cohorts[self.reference.full_name]
         return self.reference.full_name
 
     def to_onclause(self) -> Any:
@@ -466,7 +463,7 @@ class FilterConfig:
 
         # Build join chain
         for j in self.join:
-            join_name = j.to_join(session, UUID)
+            join_name = j.to_join(strategy.cohorts)
             join_tbl = get_table(join_name, j.reference.alias)
             from_clause = from_clause.join(join_tbl, j.to_onclause())
 
@@ -600,7 +597,7 @@ class ExtractMeta:
             # Cohort dependencies
             if table_filter.cohort:
                 dependencies.add(table_filter.cohort)
-            # Table dependencies
+            # Table dependencies from primary reference
             elif (
                 table_filter.reference
                 and table_filter.reference.schema
@@ -608,6 +605,12 @@ class ExtractMeta:
             ):
                 ref = table_filter.reference
                 dependencies.add(f"{ref.schema}.{ref.table}")
+
+            # Join-chain dependencies
+            for j in table_filter.join:
+                if j.reference.schema and j.reference.table:
+                    dependencies.add(j.reference.full_name)
+
         return dependencies
 
     @classmethod
