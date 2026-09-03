@@ -292,7 +292,7 @@ class Session(SQLAlchemySession):
                 if drop.kind != create.kind:
                     raise ValueError("DROP/CREATE have distinct types.")
                 # Should drop and create same object (name)
-                if drop.this.parts != create.this.parts:
+                if drop.find(exp.Table).parts != create.find(exp.Table).parts:
                     raise ValueError("DROP/CREATE have distinct identifiers.")
             # CREATE INDEX lists
             case [exp.Create(kind="INDEX") as index, *rest]:
