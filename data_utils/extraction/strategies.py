@@ -68,7 +68,7 @@ class HashingReader:
 
     def __init__(self, fp):
         self.fp = fp
-        self.hasher = hashlib.md5()
+        self.hasher = hashlib.md5()  # noqa: DUO130
 
     def read(self, size=-1):
         """Read data and update hasher."""

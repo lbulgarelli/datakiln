@@ -48,7 +48,7 @@ class SQLGenerator:
         if strategy.is_read_only or not columns:
             return
 
-        columns_hash = md5("_".join(columns).encode()).hexdigest()
+        columns_hash = md5("_".join(columns).encode()).hexdigest()  # noqa: DUO130, E501
         schema = table_parts[0] if len(table_parts) == 2 else None
         tbl_name = table_parts[-1]
 

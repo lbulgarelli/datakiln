@@ -79,7 +79,7 @@ class HashingFileWriter:
     def __init__(self, fp):
         """Initialize the hashing file writer."""
         self.fp = fp
-        self.hasher = hashlib.md5()
+        self.hasher = hashlib.md5()  # noqa: DUO130
 
     def write(self, b):
         """Write bytes to the file and update the hash."""
