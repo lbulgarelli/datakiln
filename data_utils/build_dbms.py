@@ -2,6 +2,7 @@
 Builds table metadata from DBMS.
 """
 import logging
+from argparse import BooleanOptionalAction
 from getpass import getuser
 from pathlib import Path
 
@@ -45,6 +46,8 @@ def main(args=None):
                         help='Database to connect to in the source DBMS.')
     parser.add_argument('--metadata', action='store_true', default=False,
                         help='Whether to export the JSON table metadata.')
+    parser.add_argument('--data', action=BooleanOptionalAction, default=True,
+                        help='Whether to extract data from the source DBMS.')
     parser.add_argument('--include', type=str, required=False, nargs='+',
                         help='Limit data extraction to the specified tables.')
     parser.add_argument('--read-only', action='store_true', default=False,
@@ -114,20 +117,21 @@ def main(args=None):
                 exported_schemas[task.schema] = []
             exported_schemas[task.schema].append(task.table)
 
-    # Create data directory if not exists
-    data_dir = directory / "data"
-    data_dir.mkdir(exist_ok=True)
+    if args.data:
+        # Create data directory if not exists
+        data_dir = directory / "data"
+        data_dir.mkdir(exist_ok=True)
 
-    # Initialize and run parallel executor
-    executor = ParallelExecutor(strategy, graph, max_workers=args.parallel)
-    try:
-        executor.execute(
-            execute=execute_set,
-            export=export_set,
-            data_dir=data_dir
-        )
-    finally:
-        strategy.cleanup()
+        # Initialize and run parallel executor
+        executor = ParallelExecutor(strategy, graph, max_workers=args.parallel)
+        try:
+            executor.execute(
+                execute=execute_set,
+                export=export_set,
+                data_dir=data_dir
+            )
+        finally:
+            strategy.cleanup()
 
     # Skip metadata generation
     if not args.metadata:
