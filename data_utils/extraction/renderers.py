@@ -131,7 +131,7 @@ class QueryDirector:
                 )
 
                 # Build EXISTS subquery
-                exists.append(filter_config.to_exists(session, strategy))
+                exists.append(filter_config.to_exists(strategy))
 
         # Build base statement with EXISTS clauses
         stmt = SQLGenerator.base_select(task.schema, task.table)
