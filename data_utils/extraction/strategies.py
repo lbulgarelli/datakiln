@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 from sqlalchemy import (
     MetaData, Table, Column, select, literal, and_, text,
-    values, column as sa_column, bindparam, String
+    values, column as sa_column, bindparam, String, Float
 )
 from sqlalchemy.schema import DropTable
 from sqlalchemy.exc import SQLAlchemyError
@@ -32,6 +32,19 @@ from data_utils.extraction.models import (
 )
 from data_utils.extraction.renderers import QueryDirector
 from data_utils.extraction.exporters import MetadataExtractor, DataExporter
+
+
+@compiles(Float, "oracle")
+def compile_oracle_float(type_, compiler, **kwargs):
+    # pylint: disable=unused-argument
+    """Compile generic SQLAlchemy Float for Oracle dialect.
+
+    Pandas to_sql maps float64 columns to Float(precision=53).
+    Oracle FLOAT types use binary precision instead of decimal precision,
+    causing SQLAlchemy 2.0+ to raise an ArgumentError. Defaulting to
+    plain 'FLOAT' allows Oracle to use its default binary precision (126).
+    """
+    return "FLOAT"
 
 
 @compiles(Values, "oracle")
