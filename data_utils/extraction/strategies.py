@@ -551,8 +551,7 @@ class StreamStrategy(ExecutionStrategy):
     def get_cohort_set(
         self,
         filter_config: FilterConfig,
-        task: 'ExtractMeta',
-        chunk_size: int = 10000
+        task: 'ExtractMeta'
     ) -> List[Tuple[str, ...]]:
         """Load cohort data into memory.
 
@@ -562,15 +561,12 @@ class StreamStrategy(ExecutionStrategy):
         :param task: Extraction task metadata.
         :type task: ExtractMeta
 
-        :param chunk_size: Size of chunks to retrieve.
-        :type chunk_size: int
-
         :return: List of cohort records.
         :rtype: list[tuple[str, ...]]
         """
         seed_chunks = self._fetch_local_seeds(
             filter_config,
-            chunk_size=chunk_size
+            chunk_size=task.chunk_size
         )
 
         # If no joins, no need to query the database

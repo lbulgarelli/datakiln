@@ -548,8 +548,10 @@ class ExtractMeta:
         schema: str,
         filters: List[Dict] = None,
         encoding: str = "utf-8",
+        chunk_size: int = 10000,
         **kwargs
     ):
+        # pylint: disable=too-many-arguments, too-many-positional-arguments
         """
         :param table: Name of the table.
         :type table: str
@@ -562,6 +564,12 @@ class ExtractMeta:
 
         :param encoding: encoding of the data file.
         :type encoding: str
+
+        :param chunk_size: Chunk size for cohort seed loading during
+                           extraction.
+                           Smaller values reduce payload size and memory
+                           pressure for large tables.
+        :type chunk_size: int
         """
         self.table = table
         self.schema = schema
@@ -569,6 +577,7 @@ class ExtractMeta:
             FilterConfig(**f) for f in (filters or [])
         ]
         self.encoding = encoding
+        self.chunk_size = chunk_size
         self.kwargs = kwargs
 
     @property
