@@ -20,6 +20,7 @@ from sqlalchemy import (
     MetaData, Table, Column, select, literal, and_, text,
     values, column as sa_column, bindparam, String, Float
 )
+from sqlalchemy.types import UserDefinedType
 from sqlalchemy.schema import DropTable
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import Select
@@ -47,6 +48,24 @@ def compile_oracle_float(type_, compiler, **kwargs):
     return "FLOAT"
 
 
+class _OracleCLOB(UserDefinedType):  # pylint: disable=abstract-method
+    """Minimal SQLAlchemy type that binds a Python str as Oracle DB_TYPE_CLOB.
+
+    Text() and oracle.CLOB() both resolve to DB_TYPE_NVARCHAR via
+    setinputsizes, which still has a size limit. This type returns
+    DB_TYPE_CLOB directly so oracledb sends the value as a true LOB,
+    allowing the JSON seed list to exceed Oracle's VARCHAR2 4000-byte
+    cap without ORA-01460.
+    """
+    cache_ok = True
+
+    def get_col_spec(self, **kwargs):  # pylint: disable=unused-argument
+        return "CLOB"
+
+    def get_dbapi_type(self, dbapi):
+        return dbapi.DB_TYPE_CLOB
+
+
 @compiles(Values, "oracle")
 def compile_oracle_values(element, compiler, **kwargs):
     """Translate a Values clause to Oracle JSON_TABLE query."""
@@ -55,7 +74,7 @@ def compile_oracle_values(element, compiler, **kwargs):
     json_str = json.dumps(raw_data)
 
     bind_name = f"seed_list_{id(element)}"
-    bind_param = bindparam(bind_name, value=json_str)
+    bind_param = bindparam(bind_name, value=json_str, type_=_OracleCLOB())
     bind_placeholder = compiler.process(bind_param, **kwargs)
 
     columns_spec = []
