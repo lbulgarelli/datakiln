@@ -6,6 +6,7 @@ import json
 import gzip
 import logging
 import hashlib
+import threading
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -107,7 +108,8 @@ class DataExporter:
         export_path: Path,
         table_name: str = "unknown",
         insert_to: Optional[Table] = None,
-        chunk_size: int = 10000
+        chunk_size: int = 10000,
+        abort: Optional[threading.Event] = None
     ) -> str:
         # pylint: disable=too-many-locals
         """Streams a single SQL query into a compressed CSV.
@@ -145,6 +147,13 @@ class DataExporter:
                 chunk_idx = 0
                 engine = session.get_bind()
                 for partition in result.partitions(chunk_size):
+                    if abort and abort.is_set():
+                        logging.warning(
+                            "Pipeline aborted, stopping extraction for %s",
+                            table_name
+                        )
+                        break
+
                     chunk_idx += 1
                     batch_inserts = []
                     for row in partition:

@@ -133,6 +133,7 @@ class ExecutionStrategy(ABC):
         self._local = threading.local()
         self.csv_hashes = {}
         self.graph = None
+        self.abort = threading.Event()
 
     @cached_property
     def engine(self):
@@ -334,7 +335,8 @@ class TempTableStrategy(ExecutionStrategy):
                 export_path,
                 table_name=task.table,
                 insert_to=dest_table,
-                chunk_size=task.chunk_size
+                chunk_size=task.chunk_size,
+                abort=self.abort
             )
 
     def drop_table(self, name: str):
@@ -594,7 +596,8 @@ class StreamStrategy(ExecutionStrategy):
                 query,
                 export_path,
                 table_name=task.table,
-                chunk_size=task.chunk_size
+                chunk_size=task.chunk_size,
+                abort=self.abort
             )
 
         if export_to is None:
@@ -768,6 +771,7 @@ class ParallelExecutor:
         """Register signal handlers to guarantee cleanup on abort."""
         def _handler(signum, _frame):
             logging.error("Received signal %s, aborting pipeline...", signum)
+            self.strategy.abort.set()
             self.strategy.cleanup()
             os._exit(1)
 
