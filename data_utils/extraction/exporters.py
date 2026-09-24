@@ -132,6 +132,7 @@ class DataExporter:
                     execution_options={"stream_results": True}
                 )
 
+                # Write CSV header
                 header = list(result.keys())
                 try:
                     idx = header.index("meta_row_id")
@@ -140,7 +141,9 @@ class DataExporter:
                     idx = len(header)
                 writer.writerow(header)
 
+                # Write data in chunks
                 chunk_idx = 0
+                engine = session.get_bind()
                 for partition in result.partitions(chunk_size):
                     chunk_idx += 1
                     batch_inserts = []
@@ -157,10 +160,10 @@ class DataExporter:
                             batch = dict(zip(result.keys(), row))
                             batch_inserts.append(batch)
 
-                    # Insert batch into table
+                    # Insert batch into table using a separate connection
                     if batch_inserts:
-                        session.execute(insert_to.insert(), batch_inserts)
-                        session.commit()
+                        with engine.begin() as conn:
+                            conn.execute(insert_to.insert(), batch_inserts)
 
                     logging.info(
                         "PROCESSED CHUNK %d ON %s (ACCUMULATED %d ROWS)",
