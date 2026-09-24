@@ -7,7 +7,7 @@ import gzip
 import logging
 import hashlib
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from sqlalchemy import MetaData, Table, Column
 from sqlalchemy.dialects import registry
@@ -105,7 +105,8 @@ class DataExporter:
         session: Session,
         queries: List[str],
         export_path: Path,
-        table_name: str = "unknown"
+        table_name: str = "unknown",
+        insert_to: Optional[Table] = None
     ) -> str:
         # pylint: disable=too-many-locals
         """Streams multiple SQL queries sequentially into a compressed CSV.
@@ -144,13 +145,25 @@ class DataExporter:
                         header_written = True
 
                     yield_size = 10000
-                    for row in result.yield_per(yield_size):
-                        # Remove meta_row_id if present
-                        data = row[:idx] + row[idx + 1:]
+                    for partition in result.partitions(yield_size):
+                        batch_inserts = []
+                        for row in partition:
+                            # Remove meta_row_id if present
+                            data = row[:idx] + row[idx + 1:]
 
-                        # Write row to CSV file
-                        writer.writerow(data)
-                        count += 1
+                            # Write row to CSV file
+                            writer.writerow(data)
+                            count += 1
+
+                            # Convert row to dictionary for insertion
+                            if insert_to is not None:
+                                batch = dict(zip(result.keys(), row))
+                                batch_inserts.append(batch)
+
+                        # Insert batch into table
+                        if batch_inserts:
+                            session.execute(insert_to.insert(), batch_inserts)
+                            session.commit()
 
                     logging.info(
                         "PROCESSED CHUNK %d/%d ON %s (ACCUMULATED %d ROWS)",

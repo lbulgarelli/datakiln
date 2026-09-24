@@ -322,21 +322,19 @@ class TempTableStrategy(ExecutionStrategy):
             self.cohorts[task.name] = temp_table
             dest_table.create(session.bind)
 
-            # Load data into destination table
-            for query in queries:
-                statement = dest_table.insert().from_select(col_names, query)
-                session.execute(statement)
-            session.commit()
+            # Fallback to .tmp dir if export_to is not specified
+            target_dir = export_to or (self.directory / "data" / ".tmp")
+            target_dir.mkdir(parents=True, exist_ok=True)
+            export_path = target_dir / f"{task.table}.csv.gz"
 
-            if export_to:
-                # Export to a CSV file
-                export_path = export_to / f"{task.table}.csv.gz"
-                self.csv_hashes[task.name] = DataExporter.stream_to_csv(
-                    session,
-                    [select(dest_table)],
-                    export_path,
-                    table_name=task.name
-                )
+            # Write to CSV and inserting simultaneously
+            self.csv_hashes[task.name] = DataExporter.stream_to_csv(
+                session,
+                queries,
+                export_path,
+                table_name=task.table,
+                insert_to=dest_table
+            )
 
     def drop_table(self, name: str):
         """Drop a specific temporary table."""
