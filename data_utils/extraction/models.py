@@ -11,7 +11,7 @@ from itertools import repeat
 from functools import cached_property
 from graphlib import TopologicalSorter
 from typing import (
-    List, Dict, Set, Optional, Any, Tuple, Iterator, TYPE_CHECKING
+    List, Dict, Set, Optional, Any, Tuple, Iterator, Union, TYPE_CHECKING
 )
 
 from sqlalchemy import (
@@ -546,7 +546,7 @@ class ExtractMeta:
         self,
         table: str,
         schema: str,
-        filters: List[Dict] = None,
+        filters: List[Union[Dict, List[Dict]]] = None,
         encoding: str = "utf-8",
         chunk_size: int = 10000,
         **kwargs
@@ -560,7 +560,7 @@ class ExtractMeta:
         :type schema: str
 
         :param filters: Metadata for filters.
-        :type filters: list[dict]
+        :type filters: list[dict] | list[list[dict]]
 
         :param encoding: encoding of the data file.
         :type encoding: str
@@ -573,12 +573,16 @@ class ExtractMeta:
         """
         self.table = table
         self.schema = schema
-        self.filters: List[FilterConfig] = [
-            FilterConfig(**f) for f in (filters or [])
-        ]
         self.encoding = encoding
         self.chunk_size = chunk_size
         self.kwargs = kwargs
+        self.filters = []
+
+        for f in (filters or []):
+            if isinstance(f, list):
+                self.filters.append([FilterConfig(**c) for c in f])
+            else:
+                self.filters.append([FilterConfig(**f)])
 
     @property
     def name(self) -> str:
@@ -597,23 +601,24 @@ class ExtractMeta:
         :rtype: set[str]
         """
         dependencies = set()
-        for table_filter in self.filters:
-            # Cohort dependencies
-            if table_filter.cohort:
-                dependencies.add(table_filter.cohort)
-            # Table dependencies from primary reference
-            elif (
-                table_filter.reference
-                and table_filter.reference.schema
-                and table_filter.reference.table
-            ):
-                ref = table_filter.reference
-                dependencies.add(f"{ref.schema}.{ref.table}")
+        for group in self.filters:
+            for table_filter in group:
+                # Cohort dependencies
+                if table_filter.cohort:
+                    dependencies.add(table_filter.cohort)
+                # Table dependencies from primary reference
+                elif (
+                    table_filter.reference
+                    and table_filter.reference.schema
+                    and table_filter.reference.table
+                ):
+                    ref = table_filter.reference
+                    dependencies.add(f"{ref.schema}.{ref.table}")
 
-            # Join-chain dependencies
-            for j in table_filter.join:
-                if j.reference.schema and j.reference.table:
-                    dependencies.add(j.reference.full_name)
+                # Join-chain dependencies
+                for j in table_filter.join:
+                    if j.reference.schema and j.reference.table:
+                        dependencies.add(j.reference.full_name)
 
         return dependencies
 

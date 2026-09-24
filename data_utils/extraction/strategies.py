@@ -18,7 +18,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 from sqlalchemy import (
     MetaData, Table, Column, select, literal, and_, text,
-    values, column as sa_column, bindparam, String, Float
+    values, column as sa_column, bindparam, String, Float,
+    inspect, Index
 )
 from sqlalchemy.types import UserDefinedType
 from sqlalchemy.schema import DropTable
@@ -184,6 +185,16 @@ class ExecutionStrategy(ABC):
         return False
 
     @abstractmethod
+    def process_filter(
+        self,
+        filter_config: FilterConfig,
+        session: Session,
+        task: ExtractMeta
+    ) -> List[Any]:
+        """Determine how to process a filter for this strategy."""
+        return [filter_config.to_exists(self)]
+
+    @abstractmethod
     def execute(self, task: ExtractMeta, export_to: Optional[Path] = None):
         """Execute the extraction task."""
 
@@ -214,14 +225,76 @@ class ExecutionStrategy(ABC):
 class TempTableStrategy(ExecutionStrategy):
     """Strategy that uses temporary tables (requires write permissions)."""
 
+    def has_index(
+        self,
+        session: Session,
+        schema: Optional[str],
+        table: str,
+        columns: List[str]
+    ) -> bool:
+        """Evaluate the existence of an index with the specified columns."""
+        insp = inspect(session.bind)
+        for idx in insp.get_indexes(table, schema=schema):
+            if idx["column_names"] == columns:
+                return True
+        return False
+
+    def ensure_index(
+        self,
+        session: Session,
+        table_parts: List[str],
+        columns: List[str]
+    ):
+        """Create a covering index on the reference table if non-existent."""
+        if not columns:
+            return
+
+        columns_hash = hashlib.md5("_".join(columns).encode()).hexdigest()  # noqa: DUO130, E501
+        schema = table_parts[0] if len(table_parts) == 2 else None
+        tbl_name = table_parts[-1]
+
+        with self.lock:
+            if not self.has_index(session, schema, tbl_name, columns):
+                try:
+                    name = f"{tbl_name}_idx_{columns_hash}"
+                    sa_table = Table(
+                        tbl_name, MetaData(), schema=schema,
+                        autoload_with=session.bind
+                    )
+                    sa_cols = [sa_table.c[c] for c in columns]
+                    idx = Index(name, *sa_cols)
+                    idx.create(bind=session.bind)
+                except SQLAlchemyError as err:
+                    logging.warning(
+                        "FAILED TO CREATE INDEX ON '%s': %s",
+                        ".".join(table_parts), err
+                    )
+
+    def process_filter(
+        self,
+        filter_config: FilterConfig,
+        session: Session,
+        task: ExtractMeta
+    ) -> List[Any]:
+        actual_table = self.cohorts.get(
+            filter_config.resolved_cohort,
+            filter_config.resolved_cohort
+        ).split(".")
+        self.ensure_index(
+            session,
+            actual_table,
+            filter_config.cohort_columns
+        )
+        return super().process_filter(filter_config, session, task)
+
     def execute(self, task: ExtractMeta, export_to: Optional[Path] = None):
         # pylint: disable=too-many-locals
         logging.info("EXTRACTING TABLE: %s", task.name)
 
         with self.session() as session:
-            # TempTableStrategy is never read-only, so build_queries always
-            # returns exactly one statement (no chunking ever occurs).
-            (query,) = self.build_queries(task)
+            # TempTableStrategy is never read-only, but multiple OR groups
+            # will still produce multiple statements.
+            queries = self.build_queries(task)
             temp_table = task.temp_name
 
             # Reflect source table to get column names and types
@@ -248,7 +321,9 @@ class TempTableStrategy(ExecutionStrategy):
             dest_table.create(session.bind)
 
             # Load data into destination table
-            session.execute(dest_table.insert().from_select(col_names, query))
+            for query in queries:
+                statement = dest_table.insert().from_select(col_names, query)
+                session.execute(statement)
             session.commit()
 
             if export_to:
@@ -488,6 +563,20 @@ class StreamStrategy(ExecutionStrategy):
     def is_read_only(self) -> bool:
         return True
 
+    def process_filter(
+        self,
+        filter_config: FilterConfig,
+        session: Session,
+        task: ExtractMeta
+    ) -> List[Any]:
+        if not filter_config.is_sql_cohort:
+            cohort_data = self.get_cohort_set(filter_config, task=task)
+            return [
+                filter_config.to_where(cohort_data[i:i + task.chunk_size])
+                for i in range(0, max(1, len(cohort_data)), task.chunk_size)
+            ]
+        return super().process_filter(filter_config, session, task)
+
     def execute(self, task: ExtractMeta, export_to: Optional[Path] = None):
         """Execute extraction by streaming and filtering in memory."""
         target_dir = export_to or (self.directory / "data" / ".tmp")
@@ -712,11 +801,13 @@ class ParallelExecutor:
                         break  # Go back to the loop to submit new ready tasks
                     except (SQLAlchemyError, OSError) as e:
                         logging.error("FAILED TASK %s: %s", task_name, e)
-                        # Mark it as done anyway to avoid deadlocking the
-                        # sorter, or handle failure accordingly
-                        with self.lock:
-                            self.ts.done(task_name)
-                        break
+                        raise RuntimeError(
+                            f"Pipeline aborted due to failure in {task_name}"
+                        ) from e
+                    finally:
+                        if not self.ts.is_active():
+                            for pending in futures:
+                                pending.cancel()
 
     def _run_task(
         self,
