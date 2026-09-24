@@ -387,9 +387,17 @@ class FilterConfig:
         self.cohort = cohort
         self.join = []
 
+        valid_aliases = {self.reference.alias}
         for j in join or []:
             j_config = JoinConfig(**j, reference_alias=self.reference.alias)
+
+            # Validate that joins do not reference tables outside its scope
+            for col in j_config.columns:
+                if not any(col.startswith(f"{a}.") for a in valid_aliases):
+                    raise ValueError(f"Invalid alias in join column '{col}'.")
+
             self.join.append(j_config)
+            valid_aliases.add(j_config.reference.alias)
 
     @property
     def is_sql_cohort(self) -> bool:
