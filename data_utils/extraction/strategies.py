@@ -5,6 +5,8 @@ import json
 import logging
 import hashlib
 import threading
+import signal
+import os
 from itertools import chain
 from pathlib import Path
 from textwrap import dedent
@@ -759,6 +761,21 @@ class ParallelExecutor:
         self.ts = graph.topological_sorter
         self.live_tasks = {}
 
+        # Register signal handlers for clean abort
+        self._register_signal_handlers()
+
+    def _register_signal_handlers(self):
+        """Register signal handlers to guarantee cleanup on abort."""
+        def _handler(signum, _frame):
+            logging.error("Received signal %s, aborting pipeline...", signum)
+            self.strategy.cleanup()
+            os._exit(1)
+
+        # Only register if running in the main thread
+        if threading.current_thread() is threading.main_thread():
+            signal.signal(signal.SIGINT, _handler)
+            signal.signal(signal.SIGTERM, _handler)
+
     def execute(
         self,
         execute: Optional[Set[str]] = None,
@@ -801,13 +818,8 @@ class ParallelExecutor:
                         break  # Go back to the loop to submit new ready tasks
                     except (SQLAlchemyError, OSError) as e:
                         logging.error("FAILED TASK %s: %s", task_name, e)
-                        raise RuntimeError(
-                            f"Pipeline aborted due to failure in {task_name}"
-                        ) from e
-                    finally:
-                        if not self.ts.is_active():
-                            for pending in futures:
-                                pending.cancel()
+                        self.strategy.cleanup()
+                        os._exit(1)
 
     def _run_task(
         self,
