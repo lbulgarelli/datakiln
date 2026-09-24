@@ -9,7 +9,7 @@ import hashlib
 from pathlib import Path
 from typing import List, Dict, Optional
 
-from sqlalchemy import MetaData, Table, Column
+from sqlalchemy import MetaData, Table, Column, Select
 from sqlalchemy.dialects import registry
 
 from data_utils.metadata.database import Session
@@ -103,13 +103,14 @@ class DataExporter:
     @staticmethod
     def stream_to_csv(
         session: Session,
-        queries: List[str],
+        query: Select,
         export_path: Path,
         table_name: str = "unknown",
-        insert_to: Optional[Table] = None
+        insert_to: Optional[Table] = None,
+        chunk_size: int = 10000
     ) -> str:
         # pylint: disable=too-many-locals
-        """Streams multiple SQL queries sequentially into a compressed CSV.
+        """Streams a single SQL query into a compressed CSV.
 
         Returns the MD5 checksum of the generated compressed CSV file.
         """
@@ -123,51 +124,47 @@ class DataExporter:
             ) as o_file:
                 logging.info("STREAMING DATA TO: %s", export_path.name)
                 writer = csv.writer(o_file)
-                header_written = False
                 count = 0
                 idx = 0
 
-                total_chunks = len(queries)
-                for i, query in enumerate(queries):
-                    result = session.execute(
-                        query,
-                        execution_options={"stream_results": True}
-                    )
+                result = session.execute(
+                    query,
+                    execution_options={"stream_results": True}
+                )
 
-                    if not header_written:
-                        header = list(result.keys())
-                        try:
-                            idx = header.index("meta_row_id")
-                            header.pop(idx)
-                        except ValueError:
-                            idx = len(header)
-                        writer.writerow(header)
-                        header_written = True
+                header = list(result.keys())
+                try:
+                    idx = header.index("meta_row_id")
+                    header.pop(idx)
+                except ValueError:
+                    idx = len(header)
+                writer.writerow(header)
 
-                    yield_size = 10000
-                    for partition in result.partitions(yield_size):
-                        batch_inserts = []
-                        for row in partition:
-                            # Remove meta_row_id if present
-                            data = row[:idx] + row[idx + 1:]
+                chunk_idx = 0
+                for partition in result.partitions(chunk_size):
+                    chunk_idx += 1
+                    batch_inserts = []
+                    for row in partition:
+                        # Remove meta_row_id if present
+                        data = row[:idx] + row[idx + 1:]
 
-                            # Write row to CSV file
-                            writer.writerow(data)
-                            count += 1
+                        # Write row to CSV file
+                        writer.writerow(data)
+                        count += 1
 
-                            # Convert row to dictionary for insertion
-                            if insert_to is not None:
-                                batch = dict(zip(result.keys(), row))
-                                batch_inserts.append(batch)
+                        # Convert row to dictionary for insertion
+                        if insert_to is not None:
+                            batch = dict(zip(result.keys(), row))
+                            batch_inserts.append(batch)
 
-                        # Insert batch into table
-                        if batch_inserts:
-                            session.execute(insert_to.insert(), batch_inserts)
-                            session.commit()
+                    # Insert batch into table
+                    if batch_inserts:
+                        session.execute(insert_to.insert(), batch_inserts)
+                        session.commit()
 
                     logging.info(
-                        "PROCESSED CHUNK %d/%d ON %s (ACCUMULATED %d ROWS)",
-                        i + 1, total_chunks, table_name, count
+                        "PROCESSED CHUNK %d ON %s (ACCUMULATED %d ROWS)",
+                        chunk_idx, table_name, count
                     )
 
                 logging.info("EXTRACTED %d ROWS FROM %s", count, table_name)

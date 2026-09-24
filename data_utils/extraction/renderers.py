@@ -6,7 +6,7 @@ from typing import List, TYPE_CHECKING
 import itertools
 
 from sqlalchemy import (
-    select, Table, MetaData, literal_column, and_
+    select, Table, MetaData, literal_column, and_, or_
 )
 from sqlalchemy.sql import Select
 from sqlalchemy.sql.elements import ClauseElement
@@ -50,8 +50,8 @@ class QueryDirector:
         session: Session,
         task: ExtractMeta,
         strategy: 'ExecutionStrategy'
-    ) -> List[Select]:
-        """Build the complete list of runnable SA Select statements for a task.
+    ) -> Select:
+        """Build the runnable SA Select statement for a task.
 
         :param session: Active SQLAlchemy session.
         :type session: Session
@@ -62,8 +62,8 @@ class QueryDirector:
         :param strategy: Execution strategy instance.
         :type strategy: ExecutionStrategy
 
-        :return: List of SA Select statements ready for execution.
-        :rtype: list[Select]
+        :return: SA Select statement ready for execution.
+        :rtype: Select
         """
         filters = []
         for filter_group in task.filters:
@@ -80,7 +80,7 @@ class QueryDirector:
 
         # If no filters, return the base statement
         if not filters:
-            return [stmt]
+            return stmt
 
         # Build chunked queries
         return QueryDirector._chunked_queries(
@@ -92,8 +92,8 @@ class QueryDirector:
     def _chunked_queries(
         base_stmt: Select,
         groups: List[List[List[ClauseElement]]]
-    ) -> List[Select]:
-        """Decompose primary cohort sets into chunked SA Select statements.
+    ) -> Select:
+        """Decompose primary cohort sets into a chunked SA Select statement.
 
         :param base_stmt: Base SA Select to extend with WHERE conditions.
         :type base_stmt: Select
@@ -104,10 +104,10 @@ class QueryDirector:
                        ClauseElements for a specific condition.
         :type groups: List[List[List[ClauseElement]]]
 
-        :return: List of SA Select statements, one per chunk combo.
-        :rtype: list[Select]
+        :return: SA Select statement representing all chunks.
+        :rtype: Select
         """
-        queries = []
+        or_clauses = []
 
         for or_group in groups:
             # Iterate over the cartesian product of all filter chunks
@@ -119,9 +119,13 @@ class QueryDirector:
                     continue
 
                 # Combine clauses since they are part of the same group
-                stmt = base_stmt.where(
+                or_clauses.append(
                     and_(*clauses) if len(clauses) > 1 else clauses[0]
                 )
-                queries.append(stmt)
 
-        return queries or [base_stmt]
+        if not or_clauses:
+            return base_stmt
+
+        return base_stmt.where(
+            or_(*or_clauses) if len(or_clauses) > 1 else or_clauses[0]
+        )

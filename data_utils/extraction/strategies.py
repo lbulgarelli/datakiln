@@ -169,14 +169,14 @@ class ExecutionStrategy(ABC):
                 if hasattr(self._local, "session"):
                     del self._local.session
 
-    def build_queries(self, task: ExtractMeta) -> List[Select]:
-        """Build the list of extraction SA Select statements.
+    def build_queries(self, task: ExtractMeta) -> Select:
+        """Build the extraction SA Select statement.
 
         :param task: Extraction task metadata.
         :type task: ExtractMeta
 
-        :return: List of SA Select statements.
-        :rtype: list[Select]
+        :return: SA Select statement.
+        :rtype: Select
         """
         with self.session() as session:
             return QueryDirector.build_queries(session, task, strategy=self)
@@ -296,7 +296,7 @@ class TempTableStrategy(ExecutionStrategy):
         with self.session() as session:
             # TempTableStrategy is never read-only, but multiple OR groups
             # will still produce multiple statements.
-            queries = self.build_queries(task)
+            query = self.build_queries(task)
             temp_table = task.temp_name
 
             # Reflect source table to get column names and types
@@ -330,10 +330,11 @@ class TempTableStrategy(ExecutionStrategy):
             # Write to CSV and inserting simultaneously
             self.csv_hashes[task.name] = DataExporter.stream_to_csv(
                 session,
-                queries,
+                query,
                 export_path,
                 table_name=task.table,
-                insert_to=dest_table
+                insert_to=dest_table,
+                chunk_size=task.chunk_size
             )
 
     def drop_table(self, name: str):
@@ -586,13 +587,14 @@ class StreamStrategy(ExecutionStrategy):
 
         with self.session() as session:
             # Export to a CSV file
-            queries = self.build_queries(task)
+            query = self.build_queries(task)
             export_path = target_dir / f"{task.table}.csv.gz"
             self.csv_hashes[task.name] = DataExporter.stream_to_csv(
                 session,
-                queries,
+                query,
                 export_path,
-                table_name=task.table
+                table_name=task.table,
+                chunk_size=task.chunk_size
             )
 
         if export_to is None:
