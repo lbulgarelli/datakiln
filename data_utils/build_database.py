@@ -8,13 +8,17 @@ from data_utils.build_metadata import get_parser
 from data_utils.metadata.database import DatabaseMeta, Session
 
 
-logging.basicConfig(
-    level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S",
-    format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s")
+logger = logging.getLogger(__name__)
 
 
 def main(args=None):
     """Creates table and loads data."""
+    logging.basicConfig(
+        level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S",
+        format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s",
+        handlers=[logging.FileHandler("build.log", mode="w")]
+    )
+
     # Get arguments
     parser = get_parser()
     parser.add_argument("--grant", metavar="grant", type=str, nargs='+',
@@ -39,8 +43,8 @@ def main(args=None):
     updated = []
     for table in database.tables:
         if not table.is_updated(session):
-            logging.info("Table '%s'.'%s': Already up to date.",
-                         table.schema, table.name)
+            logger.info("Table '%s'.'%s': Already up to date.",
+                        table.schema, table.name)
             continue
         table.create(session)
         table.stage_meta.load(session)

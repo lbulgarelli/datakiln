@@ -12,9 +12,7 @@ import pandas as pd
 from slugify import slugify
 
 
-logging.basicConfig(
-    level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',
-    format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
+logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {
     ".csv.gz": partial(pd.read_csv, engine="python", nrows=10000),
@@ -117,6 +115,12 @@ def generate_table_meta(meta_dir, table_name, data):
 
 def main(args=None):
     """Generates metadata from data file."""
+    logging.basicConfig(
+        level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',
+        format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+        handlers=[logging.FileHandler("metadata.log", mode="w")]
+    )
+
     # Get arguments
     parser = get_parser()
     parser.add_argument('--delimiter', metavar="delimiter", type=str,
@@ -137,7 +141,7 @@ def main(args=None):
         extension = "".join(data_path.suffixes).lower()
         if extension not in SUPPORTED_EXTENSIONS:
             continue
-        logging.info("GENERATING METADATA: %s", data_path)
+        logger.info("GENERATING METADATA: %s", data_path)
 
         # Read file
         params = {}

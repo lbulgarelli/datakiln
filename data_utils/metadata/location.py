@@ -13,9 +13,7 @@ from paramiko import SSHClient, AutoAddPolicy
 from data_utils.metadata.column import ColumnMeta
 
 
-logging.basicConfig(
-    level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S",
-    format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s")
+logger = logging.getLogger(__name__)
 
 
 class SSHLocation(ColumnMeta):
@@ -92,8 +90,8 @@ class SSHLocation(ColumnMeta):
         :return: None
         """
 
-        logging.info("Table '%s'.'%s': Searching local file system.",
-                     table.schema, table.name)
+        logger.info("Table '%s'.'%s': Searching local file system.",
+                    table.schema, table.name)
 
         # List to append new rows and counter for number of matches
         formatted_rows = []
@@ -131,9 +129,9 @@ class SSHLocation(ColumnMeta):
             formatted_rows.append(row_string)
 
         # Log how many local matches were found
-        logging.log(logging.INFO if formatted_rows else logging.WARNING,
-                    "Table '%s'.'%s': Found %d local files matches.",
-                    table.schema, table.name, n_matches)
+        logger.log(logging.INFO if formatted_rows else logging.WARNING,
+                   "Table '%s'.'%s': Found %d local files matches.",
+                   table.schema, table.name, n_matches)
 
         # Create table on Stage
         self.create_table(conn, formatted_rows, table)

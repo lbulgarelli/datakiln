@@ -15,6 +15,8 @@ from sqlalchemy.dialects import registry
 
 from data_utils.metadata.database import Session
 
+logger = logging.getLogger(__name__)
+
 
 class MetadataExtractor:
     """Class to handle metadata extraction and generation."""
@@ -26,7 +28,7 @@ class MetadataExtractor:
         tables: List[str]
     ) -> MetaData:
         """Generate column metadata from DBMS."""
-        logging.info("RETRIEVING SCHEMA METADATA: %s", schema)
+        logger.info("RETRIEVING SCHEMA METADATA: %s", schema)
         metadata = MetaData(schema=schema)
         metadata.reflect(bind=session.bind, only=tables, views=True)
         return metadata
@@ -124,7 +126,7 @@ class DataExporter:
                 encoding='utf-8',
                 newline=''
             ) as o_file:
-                logging.info("STREAMING DATA TO: %s", export_path.name)
+                logger.info("STREAMING DATA TO: %s", export_path.name)
                 writer = csv.writer(o_file)
                 count = 0
                 idx = 0
@@ -148,7 +150,7 @@ class DataExporter:
                 engine = session.get_bind()
                 for partition in result.partitions(chunk_size):
                     if abort and abort.is_set():
-                        logging.warning(
+                        logger.warning(
                             "Pipeline aborted, stopping extraction for %s",
                             table_name
                         )
@@ -174,11 +176,11 @@ class DataExporter:
                         with engine.begin() as conn:
                             conn.execute(insert_to.insert(), batch_inserts)
 
-                    logging.info(
+                    logger.info(
                         "PROCESSED CHUNK %d ON %s (ACCUMULATED %d ROWS)",
                         chunk_idx, table_name, count
                     )
 
-                logging.info("EXTRACTED %d ROWS FROM %s", count, table_name)
+                logger.info("EXTRACTED %d ROWS FROM %s", count, table_name)
 
         return hash_writer.hasher.hexdigest()

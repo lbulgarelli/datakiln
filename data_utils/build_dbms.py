@@ -15,14 +15,18 @@ from data_utils.extraction.strategies import (
 from data_utils.extraction.exporters import MetadataExtractor
 
 
-logging.basicConfig(
-    level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',
-    format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
+logger = logging.getLogger(__name__)
 
 
 def main(args=None):
     # pylint: disable=too-many-locals, too-many-branches, too-many-statements
     """Downloads data and creates sample metadata for tables."""
+    logging.basicConfig(
+        level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',
+        format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+        handlers=[logging.FileHandler("extract.log", mode="w")]
+    )
+
     # Arguments
     parser = get_parser()
     parser.add_argument('--dialect', metavar="dialect", type=str,
@@ -148,7 +152,7 @@ def main(args=None):
 
             for _, table in metadata.tables.items():
                 # Generate table metadata
-                logging.info("GENERATING TABLE METADATA: %s", table)
+                logger.info("GENERATING TABLE METADATA: %s", table)
                 MetadataExtractor.generate_table_meta(
                     meta_dir,
                     table,

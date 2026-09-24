@@ -12,9 +12,8 @@ from redcap import Project  # pylint: disable=import-error
 
 from data_utils.build_metadata import get_parser
 
-logging.basicConfig(
-    level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',
-    format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
+
+logger = logging.getLogger(__name__)
 
 
 def get_id(project):
@@ -28,7 +27,7 @@ def get_id(project):
     """
 
     # Retrieve project's ID field
-    logging.info("REDCAP: RETRIEVING ID FIELD")
+    logger.info("REDCAP: RETRIEVING ID FIELD")
 
     # REDCAP's ID and event name (project dependent)
     subject_id = {
@@ -61,7 +60,7 @@ def get_metadata(project):
     """
 
     # Retrieve project metadata
-    logging.info("REDCAP: RETRIEVING METADATA")
+    logger.info("REDCAP: RETRIEVING METADATA")
     metadata = project.export_metadata(format_type="df")
     metadata = metadata.loc[metadata.field_type != "descriptive"]
 
@@ -230,7 +229,7 @@ def generate_table_data(project, form_name, form_meta,
     :rtype: pandas.DataFrame
     """
     # Retrieve data from REDCap
-    logging.info("GENERATING TABLE DATA: %s", form_name)
+    logger.info("GENERATING TABLE DATA: %s", form_name)
     data = project.export_records(
         format_type='df', forms=[form_name], decimal_character=".",
         df_kwargs={"index_col": None, "na_values": na_values or []})
@@ -271,16 +270,15 @@ def generate_table_data(project, form_name, form_meta,
 
             # If columns still differ
             if diff_columns:
-                logging.warning(
+                logger.warning(
                     "DATA AND METADATA FIELDS DIFFER: %s", diff_columns)
 
         # Exist in meta but not in data
         elif not diff_columns:
             diff_columns = list(set(meta_columns) - set(data_columns))
-            logging.warning(
-                "METADATA AND DATA FIELDS DIFFER: %s", diff_columns)
+            logger.warning("METADATA AND DATA FIELDS DIFFER: %s", diff_columns)
             form_meta = form_meta.drop(diff_columns, axis='rows')
-            logging.warning("METADATA COLUMNS DROPPED SUCESSFULLY.")
+            logger.warning("METADATA COLUMNS DROPPED SUCESSFULLY.")
 
     # Checkbox fields are multiple columns, so we group them into an array
     # comorbidity_1, comorbidity_2    to    comorbidity
@@ -309,6 +307,12 @@ def generate_table_data(project, form_name, form_meta,
 def main(args=None):
     # pylint: disable=too-many-locals
     """Downloads REDCap data and creates sample jsons for tables."""
+    logging.basicConfig(
+        level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',
+        format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+        handlers=[logging.FileHandler("redcap.log", mode="w")]
+    )
+
     # Arguments
     parser = get_parser()
     parser.add_argument('--api-url', metavar="api_url", type=str,
@@ -328,7 +332,7 @@ def main(args=None):
     directory = Path(args.directory).absolute()
 
     # API parameters
-    logging.info("REDCAP: CONNECTING TO API")
+    logger.info("REDCAP: CONNECTING TO API")
     project = Project(args.api_url, args.api_key)
 
     # Get subject ID field and redcap event ID
@@ -370,7 +374,7 @@ def main(args=None):
 
         # Generate table metadata from form
         if args.json:
-            logging.info("GENERATING TABLE METADATA: %s", form_name)
+            logger.info("GENERATING TABLE METADATA: %s", form_name)
             table_meta = generate_table_meta(
                 form_name,
                 form_meta,

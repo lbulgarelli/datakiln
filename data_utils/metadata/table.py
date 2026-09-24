@@ -30,9 +30,7 @@ from data_utils.metadata.foreign_key import ForeignKeyMeta
 from data_utils.metadata.unpivot import UnpivotMeta
 
 
-logging.basicConfig(
-    level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S",
-    format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s")
+logger = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
@@ -247,8 +245,8 @@ class StageMeta(TableBase):
             data_path = file.absolute()
 
             # Stage data
-            logging.info("Table '%s'.'%s': Staging file '%s'.",
-                         self.schema[1:], self.name, file.name)
+            logger.info("Table '%s'.'%s': Staging file '%s'.",
+                        self.schema[1:], self.name, file.name)
 
             # Get header from file
             suffix = "".join(data_path.suffixes)
@@ -455,8 +453,8 @@ class TableMeta(TableBase):
 
         :return: None
         """
-        logging.info("Table '%s'.'%s': Resolving NULL values.", self.schema,
-                     self.name)
+        logger.info("Table '%s'.'%s': Resolving NULL values.", self.schema,
+                    self.name)
         # Enforce constraints
         for column in self.columns:
             # Resolve NULL values
@@ -473,8 +471,8 @@ class TableMeta(TableBase):
 
         :return: None
         """
-        logging.info("Table '%s'.'%s': Enforcing foreign keys.", self.schema,
-                     self.name)
+        logger.info("Table '%s'.'%s': Enforcing foreign keys.", self.schema,
+                    self.name)
         # Enforce foreign keys
         for fk in self.foreign_keys:
             fk.create(session)
@@ -488,8 +486,8 @@ class TableMeta(TableBase):
         :return: None
         """
         for index in self.indexes:
-            logging.info("Table '%s'.'%s': Creating index %s.", self.schema,
-                         self.name, tuple(index))
+            logger.info("Table '%s'.'%s': Creating index %s.", self.schema,
+                        self.name, tuple(index))
             stmt = dedent("""
             CREATE INDEX ON {schema}.{name} ({columns})
             """).format(
@@ -508,8 +506,8 @@ class TableMeta(TableBase):
         :return: None
         """
         for index in self.uniques:
-            logging.info("Table '%s'.'%s': Creating unique index %s.",
-                         self.schema, self.name, tuple(index))
+            logger.info("Table '%s'.'%s': Creating unique index %s.",
+                        self.schema, self.name, tuple(index))
             stmt = dedent("""
             CREATE UNIQUE INDEX ON {schema}.{name} ({columns})
             """).format(
@@ -568,7 +566,7 @@ class TableMeta(TableBase):
             where_req.append(f"{self.name}.{column} IS NULL")
 
         # Move rows from staging to final schema
-        logging.info("Table '%s'.'%s': Loading.", self.schema, self.name)
+        logger.info("Table '%s'.'%s': Loading.", self.schema, self.name)
 
         # Skipped if we are pivoting the table later
         if not self.unpivot_meta:
@@ -678,7 +676,7 @@ class TableMeta(TableBase):
         SELECT COUNT(meta_row_id) from _{self.schema}.{self.name}
         """)).first()[0]
         if count > 0:
-            logging.warning(
+            logger.warning(
                 "Table '%s'.'%s': %d rows remain staged.",
                 self.schema, self.name, count
             )

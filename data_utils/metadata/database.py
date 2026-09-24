@@ -20,14 +20,11 @@ from sqlalchemy_utils import create_database, database_exists
 from data_utils.metadata.table import TableMeta, Base
 
 
-logging.basicConfig(
-    level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S",
-    format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s")
-
 DRIVER = {
     "postgresql": "psycopg2",
     "oracle": "oracledb"
 }
+logger = logging.getLogger(__name__)
 
 
 class DatabaseMeta():
@@ -141,8 +138,8 @@ class DatabaseMeta():
             file_relative = file_name.relative_to(self.directory)
             if str(file_relative) in self.ignore:
                 continue
-            logging.info("Script '%s': RUNNING",
-                         file_name.relative_to(self.directory))
+            logger.info("Script '%s': RUNNING",
+                        file_name.relative_to(self.directory))
 
             # Load file
             with open(file_name, "r", encoding="utf-8") as file:
