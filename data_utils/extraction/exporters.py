@@ -10,12 +10,27 @@ import threading
 from pathlib import Path
 from typing import List, Dict, Optional
 
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_fixed,
+    retry_if_exception_type,
+    before_sleep_log
+)
 from sqlalchemy import MetaData, Table, Column, Select
 from sqlalchemy.dialects import registry
+from sqlalchemy.exc import SQLAlchemyError
 
 from data_utils.metadata.database import Session
 
+
 logger = logging.getLogger(__name__)
+db_retry = retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(10),
+    retry=retry_if_exception_type((SQLAlchemyError, OSError)),
+    before_sleep=before_sleep_log(logger, logging.WARNING)
+)
 
 
 class MetadataExtractor:
@@ -104,6 +119,7 @@ class DataExporter:
     """Class to handle data export logic."""
 
     @staticmethod
+    @db_retry
     def stream_to_csv(
         session: Session,
         query: Select,
@@ -113,7 +129,8 @@ class DataExporter:
         chunk_size: int = 10000,
         abort: Optional[threading.Event] = None
     ) -> str:
-        # pylint: disable=too-many-locals
+        # pylint: disable=too-many-locals, too-many-arguments
+        # pylint: disable=too-many-positional-arguments
         """Streams a single SQL query into a compressed CSV.
 
         Returns the MD5 checksum of the generated compressed CSV file.
@@ -173,8 +190,11 @@ class DataExporter:
 
                     # Insert batch into table using a separate connection
                     if batch_inserts:
-                        with engine.begin() as conn:
-                            conn.execute(insert_to.insert(), batch_inserts)
+                        @db_retry
+                        def _insert_batch(batch):
+                            with engine.begin() as conn:
+                                conn.execute(insert_to.insert(), batch)
+                        _insert_batch(batch_inserts)
 
                     logger.info(
                         "PROCESSED CHUNK %d ON %s (ACCUMULATED %d ROWS)",
