@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "data-utils"
-version = "0.1.88"
+version = "0.1.89"
 description='Data Utilities.'
 readme = "README.md"
 authors = [
