@@ -65,9 +65,27 @@ class _OracleCLOB(UserDefinedType):  # pylint: disable=abstract-method
     cache_ok = True
 
     def get_col_spec(self, **kwargs):  # pylint: disable=unused-argument
+        """
+        Get the column specification for Oracle.
+
+        :param kwargs: Keyword arguments.
+        :type kwargs: dict
+
+        :return: Column specification.
+        :rtype: str
+        """
         return "CLOB"
 
     def get_dbapi_type(self, dbapi):
+        """
+        Get the database API type for Oracle.
+
+        :param dbapi: Database API.
+        :type dbapi: oracledb
+
+        :return: Database API type.
+        :rtype: oracledb.DB_TYPE_CLOB
+        """
         return dbapi.DB_TYPE_CLOB
 
 
