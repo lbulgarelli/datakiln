@@ -1,6 +1,7 @@
 """
 Generate metadata from data file.
 """
+import sys
 import json
 import logging
 from pathlib import Path
@@ -51,8 +52,29 @@ def get_parser():
     parser.add_argument("directory", metavar="directory", type=str,
                         help="""Path of the directory with the dataset
                         metadata.""")
-
+    parser.add_argument("--stdout", action="store_true",
+                        help="Output logs to standard output")
     return parser
+
+
+def setup_logging(stdout=False, log_file="build.log"):
+    """Sets up logging for the scripts.
+
+    :param stdout: Whether to output logs to standard output.
+    :type: bool
+
+    :param log_file: Path to the log file.
+    :type: str
+    """
+    handlers = [logging.FileHandler(log_file, mode="w")]
+    if stdout:
+        handlers.append(logging.StreamHandler(sys.stdout))
+
+    logging.basicConfig(
+        level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S",
+        format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s",
+        handlers=handlers
+    )
 
 
 def dtype_to_meta(column, dtype):
@@ -115,18 +137,13 @@ def generate_table_meta(meta_dir, table_name, data):
 
 def main(args=None):
     """Generates metadata from data file."""
-    logging.basicConfig(
-        level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',
-        format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
-        handlers=[logging.FileHandler("metadata.log", mode="w")]
-    )
-
     # Get arguments
     parser = get_parser()
     parser.add_argument('--delimiter', metavar="delimiter", type=str,
                         required=False,
                         help='Character to treat as delimiter.')
     args = parser.parse_args(args)
+    setup_logging(args.stdout, "metadata.log")
 
     # Get absolute path for specified directory
     directory = Path(args.directory).absolute()

@@ -3,7 +3,7 @@ Creates table and loads data.
 """
 from pathlib import Path
 
-from data_utils.build_metadata import get_parser
+from data_utils.build_metadata import get_parser, setup_logging
 from data_utils.metadata.database import Session
 from data_utils.metadata.table import TableMeta
 
@@ -13,6 +13,7 @@ def main(args=None):
     # Get arguments
     parser = get_parser()
     args = parser.parse_args(args)
+    setup_logging(args.stdout, "build.log")
 
     # Get absolute of specified path
     meta_path = Path(args.directory).absolute()

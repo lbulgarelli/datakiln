@@ -4,7 +4,7 @@ Creates table and loads data.
 import logging
 from pathlib import Path
 
-from data_utils.build_metadata import get_parser
+from data_utils.build_metadata import get_parser, setup_logging
 from data_utils.metadata.database import DatabaseMeta, Session
 
 
@@ -13,17 +13,12 @@ logger = logging.getLogger(__name__)
 
 def main(args=None):
     """Creates table and loads data."""
-    logging.basicConfig(
-        level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S",
-        format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s",
-        handlers=[logging.FileHandler("build.log", mode="w")]
-    )
-
     # Get arguments
     parser = get_parser()
     parser.add_argument("--grant", metavar="grant", type=str, nargs='+',
                         help="Grant read permissions to specified users")
     args = parser.parse_args(args)
+    setup_logging(args.stdout, "build.log")
 
     # Get absolute of specified path
     directory = Path(args.directory).absolute()

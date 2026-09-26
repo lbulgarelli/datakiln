@@ -10,7 +10,7 @@ from pathlib import Path
 
 from redcap import Project  # pylint: disable=import-error
 
-from data_utils.build_metadata import get_parser
+from data_utils.build_metadata import get_parser, setup_logging
 
 
 logger = logging.getLogger(__name__)
@@ -307,12 +307,6 @@ def generate_table_data(project, form_name, form_meta,
 def main(args=None):
     # pylint: disable=too-many-locals
     """Downloads REDCap data and creates sample jsons for tables."""
-    logging.basicConfig(
-        level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',
-        format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
-        handlers=[logging.FileHandler("redcap.log", mode="w")]
-    )
-
     # Arguments
     parser = get_parser()
     parser.add_argument('--api-url', metavar="api_url", type=str,
@@ -329,6 +323,7 @@ def main(args=None):
     parser.add_argument('--exclude', metavar='exclude', type=str, nargs='+',
                         help='Specify forms to exclude, default is none.')
     args = parser.parse_args(args)
+    setup_logging(args.stdout, "redcap.log")
     directory = Path(args.directory).absolute()
 
     # API parameters

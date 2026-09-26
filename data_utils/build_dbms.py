@@ -7,7 +7,7 @@ from getpass import getuser
 from pathlib import Path
 
 from data_utils.metadata.database import DatabaseMeta, DRIVER
-from data_utils.build_metadata import get_parser
+from data_utils.build_metadata import get_parser, setup_logging
 from data_utils.extraction.models import ExtractMeta, ExtractGraph
 from data_utils.extraction.strategies import (
     StreamStrategy, TempTableStrategy, ParallelExecutor
@@ -21,12 +21,6 @@ logger = logging.getLogger(__name__)
 def main(args=None):
     # pylint: disable=too-many-locals, too-many-branches, too-many-statements
     """Downloads data and creates sample metadata for tables."""
-    logging.basicConfig(
-        level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S',
-        format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
-        handlers=[logging.FileHandler("extract.log", mode="w")]
-    )
-
     # Arguments
     parser = get_parser()
     parser.add_argument('--dialect', metavar="dialect", type=str,
@@ -59,6 +53,7 @@ def main(args=None):
     parser.add_argument('--parallel', type=int, default=4,
                         help='Number of parallel extraction jobs.')
     args = parser.parse_args(args)
+    setup_logging(args.stdout, "extract.log")
     directory = Path(args.directory).absolute()
 
     # Create output directory
