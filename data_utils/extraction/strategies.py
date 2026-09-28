@@ -299,15 +299,16 @@ class TempTableStrategy(ExecutionStrategy):
         session: Session,
         task: ExtractMeta
     ) -> List[Any]:
-        actual_table = self.cohorts.get(
-            filter_config.resolved_cohort,
-            filter_config.resolved_cohort
-        ).split(".")
-        self.ensure_index(
-            session,
-            actual_table,
-            filter_config.cohort_columns
-        )
+        if filter_config.resolved_cohort is not None:
+            actual_table = self.cohorts.get(
+                filter_config.resolved_cohort,
+                filter_config.resolved_cohort
+            ).split(".")
+            self.ensure_index(
+                session,
+                actual_table,
+                filter_config.cohort_columns
+            )
         return super().process_filter(filter_config, session, task)
 
     def execute(self, task: ExtractMeta, export_to: Optional[Path] = None):
@@ -592,7 +593,7 @@ class StreamStrategy(ExecutionStrategy):
         session: Session,
         task: ExtractMeta
     ) -> List[Any]:
-        if not filter_config.is_sql_cohort:
+        if filter_config.resolved_cohort and not filter_config.is_sql_cohort:
             cohort_data = self.get_cohort_set(filter_config, task=task)
             return [
                 filter_config.to_where(cohort_data[i:i + task.chunk_size])

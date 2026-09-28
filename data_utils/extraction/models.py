@@ -405,16 +405,13 @@ class FilterConfig:
         return bool(self.cohort and self.cohort.endswith(".sql"))
 
     @property
-    def resolved_cohort(self) -> str:
+    def resolved_cohort(self) -> Optional[str]:
         """Return the resolved cohort table name."""
         if self.cohort:
             return self.cohort
         if self.reference.schema and self.reference.table:
             return f"{self.reference.schema}.{self.reference.table}"
-        raise ValueError(
-            "FilterConfig must specify either a cohort or a reference "
-            "schema/table."
-        )
+        return None
 
     @property
     def cohort_columns(self) -> List[str]:
@@ -462,13 +459,7 @@ class FilterConfig:
                 schema=self.reference.schema
             ).alias(self.reference.alias)
         else:
-            raise ValueError("Cohort or reference table not found.")
-
-        # Build join chain
-        for j in self.join:
-            join_name = j.to_join(strategy.cohorts)
-            join_tbl = get_table(join_name, j.reference.alias)
-            from_clause = from_clause.join(join_tbl, j.to_onclause())
+            from_clause = None
 
         # Build WHERE conditions
         conditions = [
@@ -479,6 +470,16 @@ class FilterConfig:
                 self.reference.columns
             )
         ]
+
+        # If there is no from_clause, return the conditions as a conjunction
+        if from_clause is None:
+            return and_(*conditions)
+
+        # Build join chain
+        for j in self.join:
+            join_name = j.to_join(strategy.cohorts)
+            join_tbl = get_table(join_name, j.reference.alias)
+            from_clause = from_clause.join(join_tbl, j.to_onclause())
 
         return exists(
             select(literal(1))
