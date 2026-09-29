@@ -272,14 +272,14 @@ class TempTableStrategy(ExecutionStrategy):
         if not columns:
             return
 
-        columns_hash = hashlib.md5("_".join(columns).encode()).hexdigest()  # noqa: DUO130, E501
+        columns_hash = hashlib.md5("_".join(columns).encode()).hexdigest()[:8]  # noqa: DUO130, E501
         schema = table_parts[0] if len(table_parts) == 2 else None
         tbl_name = table_parts[-1]
 
         with self.lock:
             if not self.has_index(session, schema, tbl_name, columns):
                 try:
-                    name = f"{tbl_name}_idx_{columns_hash}"
+                    name = f"{tbl_name[:49]}_idx_{columns_hash}"
                     sa_table = Table(
                         tbl_name, MetaData(), schema=schema,
                         autoload_with=session.bind
