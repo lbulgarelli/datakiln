@@ -141,6 +141,15 @@ class ReferenceConfig:
             return f"{self.schema}.{self.table}"
         return self.table or ""
 
+    @cached_property
+    def patterns(self) -> List[Any]:
+        """Precompiled regex patterns for reference columns."""
+        pattern_list = []
+        for column in self.columns:
+            pattern_str = rf"(?<![\w\.\:]){re.escape(column)}(?![\w\.])"
+            pattern_list.append(re.compile(pattern_str))
+        return pattern_list
+
 
 class ColumnPair:
     """Base class for a single condition in a JoinConfig pair list."""
@@ -530,9 +539,9 @@ class FilterConfig:
                         continue
 
                     # Replace the reference column with a bind parameter
-                    pattern = rf"(?<![\w\.\:]){re.escape(ref_col)}(?![\w\.])"
+                    pattern = self.reference.patterns[ref_idx]
                     ref_param = f"p_{row_idx}_{ref_idx}"
-                    expr, count = re.subn(pattern, f":{ref_param}", expr)
+                    expr, count = pattern.subn(f":{ref_param}", expr)
                     if count > 0:
                         used_params[ref_param] = _coerce(ref_val)
 
