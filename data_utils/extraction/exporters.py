@@ -150,7 +150,10 @@ class DataExporter:
 
                 result = session.execute(
                     query,
-                    execution_options={"stream_results": True}
+                    execution_options={
+                        "stream_results": True,
+                        "skip_formatting": True
+                    }
                 )
 
                 # Write CSV header
@@ -193,7 +196,10 @@ class DataExporter:
                         @db_retry
                         def _insert_batch(batch):
                             with engine.begin() as conn:
-                                conn.execute(insert_to.insert(), batch)
+                                stmt = insert_to.insert().execution_options(
+                                    skip_formatting=True
+                                )
+                                conn.execute(stmt, batch)
                         _insert_batch(batch_inserts)
 
                     logger.info(

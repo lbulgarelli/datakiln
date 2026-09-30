@@ -193,6 +193,11 @@ def before_cursor_execute(conn, cursor, statement, parameters, context,
     # pylint: disable=too-many-arguments, too-many-positional-arguments
     # pylint: disable=unused-argument, broad-exception-caught
     """Format SQL query before execution."""
+
+    # Skip formatting if explicitly requested via execution options
+    if getattr(context, "execution_options", {}).get("skip_formatting", False):
+        return statement, parameters
+
     try:
         statement = sqlparse.format(
             statement,

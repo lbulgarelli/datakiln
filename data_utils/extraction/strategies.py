@@ -577,7 +577,12 @@ class JoinChain:
         ).distinct()
         if self._where_clauses:
             stmt = stmt.where(and_(*self._where_clauses))
-        return session.execute(stmt).all()
+        return session.execute(
+            stmt,
+            execution_options={
+                "skip_formatting": True
+            }
+        ).all()
 
 
 class StreamStrategy(ExecutionStrategy):
