@@ -87,6 +87,7 @@ class DatabaseMeta():
             AND nspname NOT LIKE 'pg_catalog%'
             AND nspname NOT LIKE 'pg_toast%'
             AND nspname NOT LIKE 'pg_temp%'
+            AND nspname != 'public'
         ) LOOP
             EXECUTE format($$ GRANT USAGE ON SCHEMA %I TO {self.name} $$, schema);
             EXECUTE format($$ GRANT SELECT ON ALL SEQUENCES IN SCHEMA %I TO {self.name} $$, schema);
