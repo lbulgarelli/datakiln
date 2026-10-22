@@ -2,6 +2,7 @@
 Dependency graphs for metadata objects.
 """
 from pathlib import Path
+from functools import cached_property
 from typing import Dict, List, Set
 from graphlib import TopologicalSorter, CycleError
 
@@ -15,6 +16,24 @@ DIALECT_MAP = {
 }
 
 
+class DependentsMap(dict):
+    """Successor map from adjacency map."""
+
+    def __init__(self, adj: Dict[str, Set[str]]):
+        super().__init__()
+        for node, predecessors in adj.items():
+            for pred in predecessors:
+                self.setdefault(pred, set()).add(node)
+
+    def count(self) -> Dict[str, int]:
+        """Returns the reference counts for each node."""
+        return {node: len(deps) for node, deps in self.items()}
+
+    def as_list(self) -> Dict[str, List[str]]:
+        """Returns the dependents map with sets converted to lists."""
+        return {node: list(deps) for node, deps in self.items()}
+
+
 class DependencyGraph:
     # pylint: disable=too-few-public-methods
     """Directed Acyclic Graph for nodes that depend on one another.
@@ -22,16 +41,22 @@ class DependencyGraph:
     Nodes declare the database objects (schema.table) they `provides` and
     `requires`. A node depends on the nodes that provide the objects it
     requires. Objects that no node provides (e.g. tables loaded elsewhere)
-    are ignored.
+    are ignored, unless `keep_unresolved` is set, in which case they become
+    dependencies that are not part of the nodes.
 
     Nodes are kept in the order they are given and that order is preserved
     whenever the dependencies allow it.
     """
 
-    def __init__(self, nodes: Dict[str, object]):
+    def __init__(self, nodes: Dict[str, object],
+                 keep_unresolved: bool = False):
         """
         :param nodes: Nodes with `provides` and `requires`, by identifier.
         :type nodes: dict[str, object]
+
+        :param keep_unresolved: Keep required objects that no node provides
+                                as dependencies.
+        :type keep_unresolved: bool
         """
         self.nodes = nodes
 
@@ -43,33 +68,53 @@ class DependencyGraph:
 
         self.adj: Dict[str, Set[str]] = {}
         for name, node in nodes.items():
-            self.adj[name] = {
-                provider
-                for obj in node.requires
-                for provider in providers.get(obj, ())
-                if provider != name
-            }
+            self.adj[name] = set()
+            for obj in node.requires:
+                if obj in providers:
+                    self.adj[name] |= providers[obj]
+                elif keep_unresolved:
+                    self.adj[name].add(obj)
 
-    def sort(self) -> List:
-        """Perform topological sort to determine execution order.
-
-        :return: Nodes ordered so that dependencies come first.
-        :rtype: list
+    @property
+    def topological_sorter(self) -> TopologicalSorter:
+        """Returns a prepared TopologicalSorter for the graph.
 
         :raises ValueError: If the dependencies contain a cycle.
         """
-        position = {name: idx for idx, name in enumerate(self.nodes)}
         sorter = TopologicalSorter(self.adj)
         try:
             sorter.prepare()
         except CycleError as error:
             cycle = " -> ".join(error.args[1])
             raise ValueError(f"Circular dependency: {cycle}") from error
+        return sorter
+
+    @cached_property
+    def dependents(self) -> DependentsMap:
+        """Map each node to the set of nodes that depend on it."""
+        return DependentsMap(self.adj)
+
+    def sort(self) -> List:
+        """Perform topological sort to determine execution order.
+
+        :return: Nodes ordered so that dependencies come first. Dependencies
+                 that are not nodes are not returned.
+        :rtype: list
+
+        :raises ValueError: If the dependencies contain a cycle.
+        """
+        position = {name: idx for idx, name in enumerate(self.nodes)}
+        sorter = self.topological_sorter
 
         ordered = []
         while sorter.is_active():
-            for name in sorted(sorter.get_ready(), key=position.get):
-                ordered.append(self.nodes[name])
+            ready = sorted(
+                sorter.get_ready(),
+                key=lambda name: (position.get(name, -1), name)
+            )
+            for name in ready:
+                if name in self.nodes:
+                    ordered.append(self.nodes[name])
                 sorter.done(name)
         return ordered
 

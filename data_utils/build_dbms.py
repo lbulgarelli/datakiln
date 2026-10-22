@@ -106,7 +106,7 @@ def main(args=None):
             if curr not in execute_set:
                 execute_set.add(curr)
                 if curr in graph.tasks:
-                    queue.extend(graph.tasks[curr].dependencies())
+                    queue.extend(graph.tasks[curr].requires)
 
     # Track exported tables for metadata generation
     exported_schemas = {}

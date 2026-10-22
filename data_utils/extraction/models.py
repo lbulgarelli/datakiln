@@ -9,7 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from itertools import repeat
 from functools import cached_property
-from graphlib import TopologicalSorter
 from typing import (
     List, Dict, Set, Optional, Any, Tuple, Iterator, Union, TYPE_CHECKING
 )
@@ -18,6 +17,8 @@ from sqlalchemy import (
     select, exists, literal, and_, or_, false, text,
     Table, MetaData
 )
+
+from data_utils.metadata.graph import DependencyGraph
 
 if TYPE_CHECKING:
     from data_utils.extraction.strategies import ExecutionStrategy
@@ -612,7 +613,13 @@ class ExtractMeta:
         """Returns the temporary table name used during extraction."""
         return f"tmp_{self.table}_{UUID}"
 
-    def dependencies(self) -> Set[str]:
+    @property
+    def provides(self) -> Set[str]:
+        """Objects (schema.table) created by the task."""
+        return {self.name}
+
+    @property
+    def requires(self) -> Set[str]:
         """Retrieve dependencies from filters.
 
         :return: Set of dependency task names.
@@ -655,50 +662,20 @@ class ExtractMeta:
         return cls(**meta)
 
 
-class DependentsMap(dict):
-    """Successor map from adjacency map."""
+class ExtractGraph(DependencyGraph):
+    """Directed Acyclic Graph for extraction tasks.
 
-    def __init__(self, adj: Dict[str, Set[str]]):
-        super().__init__()
-        for node, predecessors in adj.items():
-            for pred in predecessors:
-                self.setdefault(pred, set()).add(node)
-
-    def count(self) -> Dict[str, int]:
-        """Returns the reference counts for each node."""
-        return {node: len(deps) for node, deps in self.items()}
-
-    def as_list(self) -> Dict[str, List[str]]:
-        """Returns the dependents map with sets converted to lists."""
-        return {node: list(deps) for node, deps in self.items()}
-
-
-class ExtractGraph:
-    """Directed Acyclic Graph for extraction tasks."""
+    Dependencies that are not tasks (e.g. cohorts and tables that are not
+    extracted) are kept, so they can be orchestrated by the executor.
+    """
 
     def __init__(self, tasks: List[ExtractMeta]):
-        self.adj = {}
-        self.tasks = {}
-        for task in tasks:
-            self.tasks[task.name] = task
-            self.adj[task.name] = task.dependencies()
+        super().__init__(
+            {task.name: task for task in tasks},
+            keep_unresolved=True
+        )
 
     @property
-    def topological_sorter(self) -> TopologicalSorter:
-        """Returns a prepared TopologicalSorter for the graph."""
-        ts = TopologicalSorter(self.adj)
-        ts.prepare()
-        return ts
-
-    @cached_property
-    def dependents(self) -> DependentsMap:
-        """Map each node to the set of tasks that depend on it."""
-        return DependentsMap(self.adj)
-
-    def sort(self) -> List[ExtractMeta]:
-        """Perform topological sort to determine execution order."""
-        ordered_tasks = []
-        for name in TopologicalSorter(self.adj).static_order():
-            if name in self.tasks:
-                ordered_tasks.append(self.tasks[name])
-        return ordered_tasks
+    def tasks(self) -> Dict[str, ExtractMeta]:
+        """Extraction tasks by name."""
+        return self.nodes

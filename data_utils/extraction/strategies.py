@@ -887,7 +887,7 @@ class ParallelExecutor:
             # Retrieve dependencies for the node that just finished
             if name in self.graph.tasks:
                 task = self.graph.tasks[name]
-                deps = task.dependencies()
+                deps = task.requires
             else:
                 # Cohorts currently have no prerequisites in the graph
                 deps = set()
