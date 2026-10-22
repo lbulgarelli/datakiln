@@ -2,7 +2,7 @@
 Dependency graphs for metadata objects.
 """
 from functools import cached_property
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 from graphlib import TopologicalSorter, CycleError
 
 from data_utils.metadata.script import ScriptMeta
@@ -41,7 +41,8 @@ class DependencyGraph:
     """
 
     def __init__(self, nodes: Dict[str, object],
-                 keep_unresolved: bool = False):
+                 keep_unresolved: bool = False,
+                 aliases: Optional[Dict[str, Set[str]]] = None):
         """
         :param nodes: Nodes with `requires`, by name.
         :type nodes: dict[str, object]
@@ -49,14 +50,24 @@ class DependencyGraph:
         :param keep_unresolved: Keep required names that are not nodes as
                                 dependencies.
         :type keep_unresolved: bool
+
+        :param aliases: Names that stand for several nodes, which are all
+                        dependencies of the nodes requiring the name. A node
+                        is never a dependency of itself this way.
+        :type aliases: dict[str, set[str]]
         """
         self.nodes = nodes
+        aliases = aliases or {}
 
         self.adj: Dict[str, Set[str]] = {}
         for name, node in nodes.items():
             self.adj[name] = set()
             for required in node.requires:
-                if required in nodes or keep_unresolved:
+                if required in nodes:
+                    self.adj[name].add(required)
+                elif required in aliases:
+                    self.adj[name] |= aliases[required] - {name}
+                elif keep_unresolved:
                     self.adj[name].add(required)
 
     @property
@@ -112,13 +123,18 @@ class DatabaseGraph(DependencyGraph):
         :type scripts: list[ScriptMeta]
         """
         nodes = {table.full_name: table for table in tables}
+
+        # Calls do not tell which overload of a function is used, so they
+        # refer to all of them
+        overloads: Dict[str, Set[str]] = {}
         for script in scripts:
-            # Scripts that create nothing (e.g. indexes) are named by path
-            name = script.full_name or str(script.path)
-            if name in nodes:
-                raise ValueError(f"Duplicate node: {name}")
-            nodes[name] = script
-        super().__init__(nodes)
+            if script.full_name in nodes:
+                raise ValueError(f"Duplicate node: {script.full_name}")
+            nodes[script.full_name] = script
+            function, parenthesis, _ = script.full_name.partition("(")
+            if parenthesis:
+                overloads.setdefault(function, set()).add(script.full_name)
+        super().__init__(nodes, aliases=overloads)
 
     @property
     def tables(self) -> List:

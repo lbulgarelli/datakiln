@@ -23,6 +23,7 @@ dependencies = [
     "pycap>=2.6.0",
     "sqlalchemy-utils>=0.41.2",
     "sqlglot>=30.0.1",
+    "more-itertools>=10.0.0",
     "sqlparse>=0.5.5",
     "dvc[ssh]>=3.60.1",
     "paramiko>=4.0.0",
