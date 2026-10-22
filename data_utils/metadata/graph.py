@@ -1,19 +1,12 @@
 """
 Dependency graphs for metadata objects.
 """
-from pathlib import Path
 from functools import cached_property
 from typing import Dict, List, Set
 from graphlib import TopologicalSorter, CycleError
 
-import sqlglot
-from sqlglot import exp
-
-
-DIALECT_MAP = {
-    "postgresql": "postgres",
-    "mssql": "tsql"
-}
+from data_utils.metadata.script import ScriptMeta
+from data_utils.metadata.table import TableMeta
 
 
 class DependentsMap(dict):
@@ -38,42 +31,33 @@ class DependencyGraph:
     # pylint: disable=too-few-public-methods
     """Directed Acyclic Graph for nodes that depend on one another.
 
-    Nodes declare the database objects (schema.table) they `provides` and
-    `requires`. A node depends on the nodes that provide the objects it
-    requires. Objects that no node provides (e.g. tables loaded elsewhere)
-    are ignored, unless `keep_unresolved` is set, in which case they become
-    dependencies that are not part of the nodes.
+    Nodes list the names of the nodes they `requires`. Required names that are
+    not nodes (e.g. tables loaded elsewhere) are ignored, unless
+    `keep_unresolved` is set, in which case they become dependencies that are
+    not part of the nodes.
 
-    Nodes are kept in the order they are given and that order is preserved
-    whenever the dependencies allow it.
+    Nodes that become ready at the same time are ordered by name, so the order
+    does not depend on the order the nodes are given.
     """
 
     def __init__(self, nodes: Dict[str, object],
                  keep_unresolved: bool = False):
         """
-        :param nodes: Nodes with `provides` and `requires`, by identifier.
+        :param nodes: Nodes with `requires`, by name.
         :type nodes: dict[str, object]
 
-        :param keep_unresolved: Keep required objects that no node provides
-                                as dependencies.
+        :param keep_unresolved: Keep required names that are not nodes as
+                                dependencies.
         :type keep_unresolved: bool
         """
         self.nodes = nodes
 
-        # Map objects to the nodes that provide them
-        providers: Dict[str, Set[str]] = {}
-        for name, node in nodes.items():
-            for obj in node.provides:
-                providers.setdefault(obj, set()).add(name)
-
         self.adj: Dict[str, Set[str]] = {}
         for name, node in nodes.items():
             self.adj[name] = set()
-            for obj in node.requires:
-                if obj in providers:
-                    self.adj[name] |= providers[obj]
-                elif keep_unresolved:
-                    self.adj[name].add(obj)
+            for required in node.requires:
+                if required in nodes or keep_unresolved:
+                    self.adj[name].add(required)
 
     @property
     def topological_sorter(self) -> TopologicalSorter:
@@ -103,82 +87,15 @@ class DependencyGraph:
 
         :raises ValueError: If the dependencies contain a cycle.
         """
-        position = {name: idx for idx, name in enumerate(self.nodes)}
         sorter = self.topological_sorter
 
         ordered = []
         while sorter.is_active():
-            ready = sorted(
-                sorter.get_ready(),
-                key=lambda name: (position.get(name, -1), name)
-            )
-            for name in ready:
+            for name in sorted(sorter.get_ready()):
                 if name in self.nodes:
                     ordered.append(self.nodes[name])
                 sorter.done(name)
         return ordered
-
-
-class ScriptMeta:
-    # pylint: disable=too-few-public-methods
-    """SQL script and the database objects it creates and uses."""
-
-    # Statement kinds that create an object other statements can reference
-    _creates = {"TABLE", "VIEW"}
-
-    def __init__(self, path: Path, sql: str, dialect: str = "postgresql"):
-        """
-        :param path: Path of the script.
-        :type path: Path
-
-        :param sql: Content of the script.
-        :type sql: str
-
-        :param dialect: SQL dialect of the script.
-        :type dialect: str
-        """
-        self.path = Path(path)
-        self.sql = sql
-        self.provides: Set[str] = set()
-        self.requires: Set[str] = set()
-
-        read = DIALECT_MAP.get(dialect, dialect)
-        for statement in sqlglot.parse(sql, read=read):
-            if statement is not None:
-                self._inspect(statement)
-        self.requires -= self.provides
-
-    @property
-    def name(self) -> str:
-        """Returns the script identifier (path)."""
-        return str(self.path)
-
-    @staticmethod
-    def _full_name(table: exp.Table) -> str:
-        """Returns schema.table, or an empty string if unqualified."""
-        return f"{table.db}.{table.name}" if table.db and table.name else ""
-
-    def _inspect(self, statement: exp.Expression):
-        """Collect the objects created and referenced by a statement."""
-        # Dropping an object does not require it to exist
-        if isinstance(statement, exp.Drop):
-            return
-
-        created = None
-        if isinstance(statement, exp.Create):
-            kind = (statement.kind or "").upper()
-            target = statement.this
-            if kind in self._creates and isinstance(target, exp.Table):
-                created = target
-                self.provides.add(self._full_name(target))
-
-        # Names defined by WITH clauses are not database objects
-        ctes = {cte.alias for cte in statement.find_all(exp.CTE)}
-        for table in statement.find_all(exp.Table):
-            if table is created or (not table.db and table.name in ctes):
-                continue
-            if name := self._full_name(table):
-                self.requires.add(name)
 
 
 class DatabaseGraph(DependencyGraph):
@@ -196,15 +113,17 @@ class DatabaseGraph(DependencyGraph):
         """
         nodes = {table.full_name: table for table in tables}
         for script in scripts:
-            if script.name in nodes:
-                raise ValueError(f"Duplicate node: {script.name}")
-            nodes[script.name] = script
+            # Scripts that create nothing (e.g. indexes) are named by path
+            name = script.full_name or str(script.path)
+            if name in nodes:
+                raise ValueError(f"Duplicate node: {name}")
+            nodes[name] = script
         super().__init__(nodes)
 
     @property
     def tables(self) -> List:
         """Tables, ordered so that referenced tables come first."""
-        return [n for n in self.sort() if not isinstance(n, ScriptMeta)]
+        return [n for n in self.sort() if isinstance(n, TableMeta)]
 
     @property
     def scripts(self) -> List[ScriptMeta]:

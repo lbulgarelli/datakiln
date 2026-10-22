@@ -332,11 +332,6 @@ class TableMeta(TableBase):
         return f"{self.schema}.{self.name}"
 
     @property
-    def provides(self):
-        """Objects (schema.table) created by the table."""
-        return {self.full_name}
-
-    @property
     def requires(self):
         """Objects (schema.table) referenced by foreign keys."""
         return {

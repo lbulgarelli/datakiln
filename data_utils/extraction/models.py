@@ -614,11 +614,6 @@ class ExtractMeta:
         return f"tmp_{self.table}_{UUID}"
 
     @property
-    def provides(self) -> Set[str]:
-        """Objects (schema.table) created by the task."""
-        return {self.name}
-
-    @property
     def requires(self) -> Set[str]:
         """Retrieve dependencies from filters.
 

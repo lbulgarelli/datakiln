@@ -19,12 +19,17 @@ from decouple import Config, RepositoryEnv
 from sqlalchemy_utils import create_database, database_exists
 
 from data_utils.metadata.table import TableMeta, Base
-from data_utils.metadata.graph import ScriptMeta, DatabaseGraph
+from data_utils.metadata.graph import DatabaseGraph
+from data_utils.metadata.script import ScriptMeta
 
 
 DRIVER = {
     "postgresql": "psycopg2",
     "oracle": "oracledb"
+}
+DIALECT_MAP = {
+    "postgresql": "postgres",
+    "mssql": "tsql"
 }
 logger = logging.getLogger(__name__)
 
@@ -49,6 +54,22 @@ class DatabaseMeta():
             with path.open("r", encoding="utf-8") as file:
                 self.ignore = file.read().splitlines()
 
+    def _files(self, directory, pattern):
+        """Retrieve files in a subdirectory, skipping the ignored ones.
+
+        :param directory: Subdirectory of the metadata directory.
+        :type directory: str
+
+        :param pattern: Glob pattern of the files.
+        :type pattern: str
+
+        :return: Paths of the files, in no particular order.
+        :rtype: Iterator[pathlib.Path]
+        """
+        for path in (self.directory / directory).glob(pattern):
+            if str(path.relative_to(self.directory)) not in self.ignore:
+                yield path
+
     @cached_property
     def graph(self):
         """Dependency graph of the tables (metadata) and scripts (derive).
@@ -61,22 +82,13 @@ class DatabaseMeta():
 
         # Retrieve table metadata
         tables = []
-        for meta_path in sorted((self.directory / "metadata").glob("*.json")):
-            meta_relative = meta_path.relative_to(self.directory)
-            if str(meta_relative) in self.ignore:
-                continue
-
-            tables.append(TableMeta.from_json(meta_path, data_repo))
+        for path in self._files("metadata", "*.json"):
+            tables.append(TableMeta.from_json(path, data_repo))
 
         # Retrieve derive scripts
         scripts = []
-        for file_name in sorted((self.directory / "derive").glob("**/*.sql")):
-            file_relative = file_name.relative_to(self.directory)
-            if str(file_relative) in self.ignore:
-                continue
-
-            with open(file_name, "r", encoding="utf-8") as file:
-                scripts.append(ScriptMeta(file_relative, file.read()))
+        for path in self._files("derive", "**/*.sql"):
+            scripts.append(ScriptMeta.from_file(path, self.directory))
 
         return DatabaseGraph(tables, scripts)
 
@@ -157,11 +169,7 @@ class DatabaseMeta():
         :param ignore: List of files to ignore.
         :type ignore: str
         """
-        subdirectory = self.directory / directory
-        for file_name in sorted(subdirectory.glob("**/*.sql")):
-            file_relative = file_name.relative_to(self.directory)
-            if str(file_relative) in self.ignore:
-                continue
+        for file_name in sorted(self._files(directory, "**/*.sql")):
             logger.info("Script '%s': RUNNING",
                         file_name.relative_to(self.directory))
 
@@ -267,11 +275,6 @@ class Session(SQLAlchemySession):
     """Manages persistence operations for ORM-mapped objects.
     """
 
-    DIALECT_MAP = {
-        "postgresql": "postgres",
-        "mssql": "tsql"
-    }
-
     def __init__(self, **kwargs):
         r"""
         :param \**kwargs: SQLAlchemy session attributes.
@@ -318,7 +321,7 @@ class Session(SQLAlchemySession):
         dialect = self.get_bind().dialect.name
         expressions = sqlglot.parse(
             statement,
-            read=self.DIALECT_MAP.get(dialect, dialect)
+            read=DIALECT_MAP.get(dialect, dialect)
         )
 
         # Validate expression sets
