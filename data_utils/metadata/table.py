@@ -328,14 +328,15 @@ class TableMeta(TableBase):
 
     @property
     def full_name(self):
-        """Returns the full table name (schema.table)."""
-        return f"{self.schema}.{self.name}"
+        """Returns the full table name (schema.table), as the database folds
+        it, since it is created without quotes."""
+        return f"{self.schema}.{self.name}".lower()
 
     @property
     def requires(self):
         """Objects (schema.table) referenced by foreign keys."""
         return {
-            f"{fk.reference.schema}.{fk.reference.table}"
+            f"{fk.reference.schema}.{fk.reference.table}".lower()
             for fk in self.foreign_keys
         } - {self.full_name}
 

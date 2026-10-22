@@ -36,7 +36,7 @@ def main(args=None):
 
     # Stage and flush to database
     updated = []
-    for table in database.tables:
+    for table in database.graph.tables:
         if not table.is_updated(session):
             logger.info("Table '%s'.'%s': Already up to date.",
                         table.schema, table.name)

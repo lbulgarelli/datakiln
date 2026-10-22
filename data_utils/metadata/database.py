@@ -19,6 +19,7 @@ from decouple import Config, RepositoryEnv
 from sqlalchemy_utils import create_database, database_exists
 
 from data_utils.metadata.table import TableMeta, Base
+from data_utils.metadata.dialect import DIALECT_MAP
 from data_utils.metadata.graph import DatabaseGraph
 from data_utils.metadata.script import ScriptMeta
 
@@ -26,10 +27,6 @@ from data_utils.metadata.script import ScriptMeta
 DRIVER = {
     "postgresql": "psycopg2",
     "oracle": "oracledb"
-}
-DIALECT_MAP = {
-    "postgresql": "postgres",
-    "mssql": "tsql"
 }
 logger = logging.getLogger(__name__)
 
@@ -71,36 +68,42 @@ class DatabaseMeta():
                 yield path
 
     @cached_property
-    def graph(self):
-        """Dependency graph of the tables (metadata) and scripts (derive).
-
-        :return: Dependency graph.
-        :rtype: data_utils.metadata.graph.DatabaseGraph
-        """
-        # Load DVC repository
-        data_repo = DVCFileSystem(self.directory / "data")
-
-        # Retrieve table metadata
-        tables = []
-        for path in self._files("metadata", "*.json"):
-            tables.append(TableMeta.from_json(path, data_repo))
-
-        # Retrieve derive scripts
-        scripts = []
-        for path in self._files("derive", "**/*.sql"):
-            scripts.append(ScriptMeta.from_file(path, self.directory))
-
-        return DatabaseGraph(tables, scripts)
-
-    @property
     def tables(self):
-        """Retrieve database tables, ordered so that tables come after the
-        tables referenced by their foreign keys.
+        """Retrieve database tables, in the order of their files.
 
         :return: Table metadata.
         :rtype: list[data_utils.metadata.table.TableMeta]
         """
-        return self.graph.tables
+        # Load DVC repository
+        data_repo = DVCFileSystem(self.directory / "data")
+
+        tables = []
+        for path in self._files("metadata", "*.json"):
+            tables.append(TableMeta.from_json(path, data_repo))
+
+        return tables
+
+    @cached_property
+    def scripts(self):
+        """Retrieve the derive scripts.
+
+        :return: Script metadata.
+        :rtype: list[data_utils.metadata.script.ScriptMeta]
+        """
+        scripts = []
+        for path in self._files("derive", "**/*.sql"):
+            scripts.append(ScriptMeta.from_sql(path, self.directory))
+        return scripts
+
+    @cached_property
+    def graph(self):
+        """Dependency graph of the tables (metadata) and scripts (derive),
+        which gives them in the order they depend on one another.
+
+        :return: Dependency graph.
+        :rtype: data_utils.metadata.graph.DatabaseGraph
+        """
+        return DatabaseGraph(self.tables, self.scripts)
 
     def grant(self, session, users=None):
         """Grants read on all objects in database.

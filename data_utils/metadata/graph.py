@@ -5,7 +5,7 @@ from functools import cached_property
 from typing import Dict, List, Optional, Set
 from graphlib import TopologicalSorter, CycleError
 
-from data_utils.metadata.script import ScriptMeta
+from data_utils.metadata.script import ScriptMeta, ScriptError
 from data_utils.metadata.table import TableMeta
 
 
@@ -128,8 +128,9 @@ class DatabaseGraph(DependencyGraph):
         # refer to all of them
         overloads: Dict[str, Set[str]] = {}
         for script in scripts:
-            if script.full_name in nodes:
-                raise ValueError(f"Duplicate node: {script.full_name}")
+            if other := nodes.get(script.full_name):
+                creator = getattr(other, "path", "the metadata")
+                raise ScriptError(script.path, f"duplicate in {creator}.")
             nodes[script.full_name] = script
             function, parenthesis, _ = script.full_name.partition("(")
             if parenthesis:

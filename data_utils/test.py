@@ -54,9 +54,9 @@ class TestBuild():
         """Test create database tables"""
         insp = inspect(test_session.connection())
 
-        tables = self.database.tables
+        tables = self.database.graph.tables
         for dependency in self.dependencies:
-            tables[0:0] = dependency.tables
+            tables[0:0] = dependency.graph.tables
 
         for table in tables:
             table.create(test_session)
@@ -74,7 +74,7 @@ class TestBuild():
 
     def test_constraints(self, test_session):  # pylint: disable=redefined-outer-name # noqa: E501
         """Test enforcing constraints"""
-        for table in self.database.tables:
+        for table in self.database.graph.tables:
             table.resolve_columns(test_session)
             table.create_uniques(test_session)
             table.enforce_fks(test_session)
