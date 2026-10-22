@@ -15,7 +15,7 @@ from sqlalchemy.orm.session import Session as SQLAlchemySession
 from sqlalchemy import create_engine, text, URL, event, Engine
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.schema import CreateSchema
-from decouple import Config, RepositoryEnv
+from decouple import Config, RepositoryEmpty, RepositoryEnv
 from sqlalchemy_utils import create_database, database_exists
 
 from data_utils.metadata.table import TableMeta, Base
@@ -90,9 +90,13 @@ class DatabaseMeta():
         :return: Script metadata.
         :rtype: list[data_utils.metadata.script.ScriptMeta]
         """
+        # The dialect is set in the environment of the database
+        dialect = self.load_env(self.directory, required=False)["dialect"]
+        dialect = DIALECT_MAP.get(dialect, dialect)
+
         scripts = []
         for path in self._files("derive", "**/*.sql"):
-            scripts.append(ScriptMeta.from_sql(path, self.directory))
+            scripts.append(ScriptMeta.from_sql(path, self.directory, dialect))
         return scripts
 
     @cached_property
@@ -207,17 +211,25 @@ class DatabaseMeta():
             conn.commit()
 
     @classmethod
-    def load_env(cls, directory):
+    def load_env(cls, directory, required=True):
         """Load environment variables.
 
         :param directory: Path for metadata directory.
         :type directory: str
+
+        :param required: Whether the directory must have a `.env` file. If
+                         not, the environment variables and the defaults are
+                         used when it does not.
+        :type required: bool
         """
         db_params = {}
 
         # Load .env file
         dotenv_file = Path(directory) / ".env"
-        env_config = Config(RepositoryEnv(dotenv_file))
+        if required or dotenv_file.exists():
+            env_config = Config(RepositoryEnv(dotenv_file))
+        else:
+            env_config = Config(RepositoryEmpty())
 
         # Get environment variables
         db_params["user"] = env_config("DB_USER", getuser())

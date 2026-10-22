@@ -6,14 +6,11 @@ from pathlib import Path
 from typing import List, Set
 
 import sqlglot
-from decouple import config
 from more_itertools import sliding_window
 from sqlglot import exp
 from sqlglot.errors import ParseError
 from sqlglot.parser import Parser
 from sqlglot.tokens import TokenType
-
-from data_utils.metadata.dialect import DIALECT_MAP
 
 
 PUBLIC = "public"
@@ -43,20 +40,20 @@ class ScriptMeta:
     # Tokens after which sqlglot makes the rest of the statement one string
     _commands = {TokenType.COMMAND, TokenType.EXECUTE}
 
-    def __init__(self, path: Path, sql: str):
+    def __init__(self, path: Path, sql: str, dialect: str = "postgres"):
         """
         :param path: Path of the script.
         :type path: Path
 
         :param sql: Content of the script.
         :type sql: str
-        """
-        # The dialect of the database is set in the environment (DB_DIALECT)
-        dialect = config("DB_DIALECT", "postgresql")
 
+        :param dialect: SQLGlot dialect of the script.
+        :type dialect: str
+        """
         self.path = Path(path)
         self.sql = sql
-        self.dialect = DIALECT_MAP.get(dialect, dialect)
+        self.dialect = dialect
         self.full_name = ""
         self.requires: Set[str] = set()
 
@@ -69,7 +66,8 @@ class ScriptMeta:
         self.requires.discard(self.full_name)
 
     @classmethod
-    def from_sql(cls, path: Path, directory: Path) -> 'ScriptMeta':
+    def from_sql(cls, path: Path, directory: Path,
+                 dialect: str = "postgres") -> 'ScriptMeta':
         """Load script metadata from a SQL file.
 
         :param path: Path of the script.
@@ -78,11 +76,14 @@ class ScriptMeta:
         :param directory: Directory the script path is relative to.
         :type directory: Path
 
+        :param dialect: SQLGlot dialect of the script.
+        :type dialect: str
+
         :return: Script metadata.
         :rtype: ScriptMeta
         """
         with open(path, "r", encoding="utf-8") as file:
-            return cls(path.relative_to(directory), file.read())
+            return cls(path.relative_to(directory), file.read(), dialect)
 
     def _parse(self, sql: str) -> List[exp.Expression]:
         """Parse SQL, reporting the syntax that sqlglot cannot parse.
