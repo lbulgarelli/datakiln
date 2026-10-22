@@ -60,7 +60,7 @@ def main(args=None):
 
     # Run views
     session.close()
-    database.execute_directory("derive", session)
+    database.execute_derive(session)
 
     # Grant read permissions on entire database
     database.grant(session, args.grant)

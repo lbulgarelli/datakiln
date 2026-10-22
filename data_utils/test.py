@@ -83,6 +83,6 @@ class TestBuild():
     def test_derive(self, test_session):  # pylint: disable=redefined-outer-name # noqa: E501
         """Test create derived views"""
         for dependency in self.dependencies:
-            dependency.execute_directory("derive", test_session)
+            dependency.execute_derive(test_session)
 
-        self.database.execute_directory("derive", test_session)
+        self.database.execute_derive(test_session)

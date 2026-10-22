@@ -327,6 +327,24 @@ class TableMeta(TableBase):
                 self.columns.extend(t_vals.columns)
 
     @property
+    def full_name(self):
+        """Returns the full table name (schema.table)."""
+        return f"{self.schema}.{self.name}"
+
+    @property
+    def provides(self):
+        """Objects (schema.table) created by the table."""
+        return {self.full_name}
+
+    @property
+    def requires(self):
+        """Objects (schema.table) referenced by foreign keys."""
+        return {
+            f"{fk.reference.schema}.{fk.reference.table}"
+            for fk in self.foreign_keys
+        } - {self.full_name}
+
+    @property
     def stage_meta(self):
         """Metadata for stage table.
 

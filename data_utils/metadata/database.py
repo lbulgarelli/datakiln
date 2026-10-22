@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from getpass import getuser
 from textwrap import dedent
+from functools import cached_property
 
 import sqlglot
 import sqlparse
@@ -18,6 +19,7 @@ from decouple import Config, RepositoryEnv
 from sqlalchemy_utils import create_database, database_exists
 
 from data_utils.metadata.table import TableMeta, Base
+from data_utils.metadata.graph import ScriptMeta, DatabaseGraph
 
 
 DRIVER = {
@@ -47,12 +49,12 @@ class DatabaseMeta():
             with path.open("r", encoding="utf-8") as file:
                 self.ignore = file.read().splitlines()
 
-    @property
-    def tables(self):
-        """Retrieve database tables.
+    @cached_property
+    def graph(self):
+        """Dependency graph of the tables (metadata) and scripts (derive).
 
-        :return: Table metadata.
-        :rtype: data_utils.metadata.table.TableMeta
+        :return: Dependency graph.
+        :rtype: data_utils.metadata.graph.DatabaseGraph
         """
         # Load DVC repository
         data_repo = DVCFileSystem(self.directory / "data")
@@ -65,7 +67,28 @@ class DatabaseMeta():
                 continue
 
             tables.append(TableMeta.from_json(meta_path, data_repo))
-        return tables
+
+        # Retrieve derive scripts
+        scripts = []
+        for file_name in sorted((self.directory / "derive").glob("**/*.sql")):
+            file_relative = file_name.relative_to(self.directory)
+            if str(file_relative) in self.ignore:
+                continue
+
+            with open(file_name, "r", encoding="utf-8") as file:
+                scripts.append(ScriptMeta(file_relative, file.read()))
+
+        return DatabaseGraph(tables, scripts)
+
+    @property
+    def tables(self):
+        """Retrieve database tables, ordered so that tables come after the
+        tables referenced by their foreign keys.
+
+        :return: Table metadata.
+        :rtype: list[data_utils.metadata.table.TableMeta]
+        """
+        return self.graph.tables
 
     def grant(self, session, users=None):
         """Grants read on all objects in database.
@@ -148,6 +171,17 @@ class DatabaseMeta():
 
             # Execute query
             session.execute(sql, **kwargs)
+
+    def execute_derive(self, session, **kwargs):
+        """Executes the derive scripts, each one after the scripts that create
+        the objects it uses.
+
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
+        """
+        for script in self.graph.scripts:
+            logger.info("Script '%s': RUNNING", script.path)
+            session.execute(script.sql, **kwargs)
 
     def create_metadata(self, session):
         """
