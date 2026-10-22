@@ -123,18 +123,20 @@ class DatabaseGraph(DependencyGraph):
         :type scripts: list[ScriptMeta]
         """
         nodes = {table.full_name: table for table in tables}
-
-        # Calls do not tell which overload of a function is used, so they
-        # refer to all of them
         overloads: Dict[str, Set[str]] = {}
         for script in scripts:
+            # An object can only be created once
             if other := nodes.get(script.full_name):
                 creator = getattr(other, "path", "the metadata")
                 raise ScriptError(script.path, f"duplicate in {creator}.")
             nodes[script.full_name] = script
+
+            # Calls do not tell which overload of a function is used, so they
+            # refer to all of them
             function, parenthesis, _ = script.full_name.partition("(")
             if parenthesis:
                 overloads.setdefault(function, set()).add(script.full_name)
+
         super().__init__(nodes, aliases=overloads)
 
     @property

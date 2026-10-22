@@ -131,6 +131,8 @@ class ScriptMeta:
             index = statement.this
             if not index.name:
                 raise ScriptError(self.path, "indexes must be named.")
+
+            # An index is named in the schema of its table
             self.full_name = f"{index.args['table'].db}.{index.name}"
             return
 
@@ -140,21 +142,29 @@ class ScriptMeta:
             if function.db:
                 raise ScriptError(self.path, FUNCTION_SCHEMA)
 
-            # Overloads are told apart by the types of their parameters, but
-            # not of the OUT ones, which are results
+            # Overloads are told apart by the types of their parameters
             types = []
             for param in statement.this.expressions:
+                # OUT parameters are results, not part of the signature
+                mode = param.find(exp.InOutColumnConstraint)
+                if mode and mode.sql() == "OUT":
+                    continue
+
+                # A named parameter is a column definition with a type, and
+                # an unnamed one is the type itself
+                dtype = param
                 if isinstance(param, exp.ColumnDef):
-                    mode = param.find(exp.InOutColumnConstraint)
-                    if mode and mode.sql() == "OUT":
-                        continue
-                    param = param.args["kind"]
-                types.append(param.sql(self.dialect).lower())
+                    dtype = param.args["kind"]
+                types.append(dtype.sql(self.dialect).lower())
+
+            # A function is named by its name and the types of its parameters
             self.full_name = f"{function.name}({', '.join(types)})"
             return
 
         # The table may be wrapped, e.g. by its column definitions
         table = statement.this.find(exp.Table)
+
+        # Anything else is named by its schema and its name
         self.full_name = f"{table.db}.{table.name}"
 
     def _references(self, statement: exp.Create):
