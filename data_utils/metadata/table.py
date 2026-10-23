@@ -636,7 +636,8 @@ class TableMeta(TableBase):
             schema=self.schema,
             row_id=self._row_id,
         )
-        max_row_id = session.execute(stmt, buffer_size=1).first()[0]
+        # (there is none when the stage is empty or all its rows are flagged)
+        max_row_id = session.execute(stmt, buffer_size=1).first()[0] or 0
 
         # Move rows to final schema
         for batch_start in range(0, max_row_id, batch_size):
