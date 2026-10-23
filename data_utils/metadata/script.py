@@ -35,7 +35,9 @@ class ScriptMeta:
 
     # Statement kinds that create an object other statements can reference
     # (materialized views are parsed as views)
-    _creates = {"TABLE", "VIEW", "INDEX", "TYPE", "SEQUENCE"} | _functions
+    _creates = {
+        "TABLE", "VIEW", "INDEX", "TYPE", "SEQUENCE", "SCHEMA"
+    } | _functions
 
     # Tokens after which sqlglot makes the rest of the statement one string
     _commands = {TokenType.COMMAND, TokenType.EXECUTE}
@@ -128,6 +130,11 @@ class ScriptMeta:
         if self.full_name:
             raise ScriptError(self.path, "it creates more than one object.")
 
+        if kind == "SCHEMA":
+            # A schema is named by itself, and the objects in it require it
+            self.full_name = statement.this.db
+            return
+
         if kind == "INDEX":
             index = statement.this
             if not index.name:
@@ -135,6 +142,7 @@ class ScriptMeta:
 
             # An index is named in the schema of its table
             self.full_name = f"{index.args['table'].db}.{index.name}"
+            self.requires.add(index.args["table"].db)
             return
 
         if kind in self._functions:
@@ -167,6 +175,7 @@ class ScriptMeta:
 
         # Anything else is named by its schema and its name
         self.full_name = f"{table.db}.{table.name}"
+        self.requires.add(table.db)
 
     def _references(self, statement: exp.Create):
         """Collect the tables and functions referenced by a statement."""
@@ -179,7 +188,7 @@ class ScriptMeta:
 
             if table.db in ("", PUBLIC):
                 raise ScriptError(self.path, "it needs a non-public schema.")
-            self.requires.add(f"{table.db}.{table.name}")
+            self.requires |= {table.db, f"{table.db}.{table.name}"}
 
         # Calls to functions, which are named without a schema. Built-in
         # functions are known to sqlglot, so only user functions are unknown.
