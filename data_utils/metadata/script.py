@@ -2,6 +2,7 @@
 SQL script metadata.
 """
 import re
+from hashlib import md5
 from pathlib import Path
 from typing import List, Set
 
@@ -55,8 +56,10 @@ class ScriptMeta:
         """
         self.path = Path(path)
         self.sql = sql
+        self.checksum = md5(sql.encode()).hexdigest()
         self.dialect = dialect
         self.full_name = ""
+        self.drop = ""
         self.requires: Set[str] = set()
 
         for statement in self._parse(sql):
@@ -124,6 +127,20 @@ class ScriptMeta:
                 case (l, TokenType.DOT, r) if {l, r} <= Parser.ID_VAR_TOKENS:
                     names.add(f"{left.text}.{right.text}")
         return names
+
+    def _drop(self, statement: exp.Create) -> str:
+        """Returns the statement that drops the object a statement creates,
+        along with whatever depends on it."""
+        # A schema is only dropped if it is empty
+        if statement.kind == "SCHEMA":
+            return ""
+
+        kind = statement.kind
+        if statement.find(exp.MaterializedProperty):
+            kind = f"MATERIALIZED {kind}"
+
+        drop = f"DROP {kind} IF EXISTS {self.full_name} CASCADE"
+        return sqlglot.parse_one(drop, read=self.dialect).sql(self.dialect)
 
     def _create(self, statement: exp.Create, kind: str):
         """Register the object created by a statement."""
@@ -235,6 +252,7 @@ class ScriptMeta:
             raise ScriptError(self.path, f"{kind}s are not supported.")
 
         self._create(statement, statement.kind)
+        self.drop = self._drop(statement)
 
         # The type of a parameter or of the result can be a table
         for datatype in statement.find_all(exp.DataType):
