@@ -19,6 +19,8 @@ def main(args=None):
                         help="Grant read permissions to specified users")
     parser.add_argument("--rebuild-all", action="store_true",
                         help="Run all derive scripts, even if up to date")
+    parser.add_argument("--prune", action="store_true",
+                        help="Drop the objects removed from the repo")
     args = parser.parse_args(args)
     setup_logging(args.stdout, "build.log")
 
@@ -32,6 +34,7 @@ def main(args=None):
     # Create metadata
     database = DatabaseMeta(directory, db_params["database"])
     database.create_metadata(session)
+    database.load_stale(session)
 
     # Create role for database read access
     database.create_role(session)
@@ -63,6 +66,9 @@ def main(args=None):
     # Run views
     session.close()
     database.execute_derive(session, updated, force=args.rebuild_all)
+
+    # Objects whose metadata or script was removed
+    database.prune(session, drop=args.prune)
 
     # Grant read permissions on entire database
     database.grant(session, args.grant)

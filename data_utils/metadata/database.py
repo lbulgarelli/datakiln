@@ -12,13 +12,15 @@ import sqlparse
 from sqlglot import exp
 from dvc.api import DVCFileSystem
 from sqlalchemy.orm.session import Session as SQLAlchemySession
-from sqlalchemy import create_engine, text, URL, event, Engine
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy import (
+    create_engine, delete, select, text, URL, event, Engine
+)
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlalchemy.schema import CreateSchema
 from decouple import Config, RepositoryEmpty, RepositoryEnv
 from sqlalchemy_utils import create_database, database_exists
 
-from data_utils.metadata.table import TableMeta, Script, Base
+from data_utils.metadata.table import TableMeta, Object, Script, Base
 from data_utils.metadata.dialect import DIALECT_MAP
 from data_utils.metadata.graph import DatabaseGraph
 from data_utils.metadata.migrations import upgrade
@@ -45,6 +47,9 @@ class DatabaseMeta():
         """
         self.directory = Path(directory)
         self.name = name
+
+        # Objects built before that are no longer in the repo
+        self.stale = {}
 
         # Retrieve files to ignore
         self.ignore = []
@@ -188,6 +193,34 @@ class DatabaseMeta():
             # Execute query
             session.execute(sql, **kwargs)
 
+    def load_stale(self, session):
+        """Load what was built before and is no longer in the repo, because
+        its metadata or script was removed or ignored.
+
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
+
+        :raises ValueError: If what is in the repo requires any of them.
+        """
+        self.stale = {}
+        for built in session.execute(select(Object)).scalars():
+            if built.name_ not in self.graph.nodes:
+                # The pipeline commits, which would expire it
+                session.expunge(built)
+                self.stale[built.name_] = built
+
+        # They are dropped at the end, so nothing in the repo can use them
+        for name in sorted(self.stale):
+            # A call names a function without its parameters, and it is not
+            # known which overload it uses
+            function = name.partition("(")[0]
+            for user, node in self.graph.nodes.items():
+                if node.requires & {name, function}:
+                    raise ValueError(
+                        f"'{user}' requires '{name}', which was removed from "
+                        "the repo."
+                    )
+
     def execute_derive(self, session, rebuilt=(), force=False, record=True,
                        **kwargs):
         """Executes the derive scripts, each one after the scripts that create
@@ -234,6 +267,52 @@ class DatabaseMeta():
                     drop_=script.drop
                 ))
                 session.commit()
+
+    def prune(self, session, drop=False):
+        """Drops what was built before and is no longer in the repo, because
+        its metadata or script was removed or ignored, and the schemas that
+        are left empty.
+
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
+
+        :param drop: Whether to drop them. If not, they are only listed.
+        :type drop: bool
+        """
+        verb = "Dropping." if drop else "Removed from the repository."
+        table = Object.__table__
+        schemas = set()
+
+        for name, built in self.stale.items():
+            logger.warning("%s '%s': %s", built.kind_.capitalize(),
+                           "'.'".join(name.split(".")), verb)
+            if built.schema:
+                schemas.add(built.schema)
+            if not drop:
+                continue
+
+            for statement in built.drops:
+                session.execute(statement)
+
+            # What is under it in the metadata goes with it
+            session.execute(delete(table).where(table.c.name_ == name))
+
+        if not drop:
+            return
+
+        # A schema is only dropped if nothing is left in it, even objects
+        # that are not ours, so the database is the one to tell
+        in_repo = {name.partition(".")[0] for name in self.graph.nodes}
+        for schema in sorted(schemas - in_repo):
+            for name in (schema, f"_{schema}"):
+                try:
+                    with session.begin_nested():
+                        session.execute(f"DROP SCHEMA IF EXISTS {name}")
+                except DBAPIError:
+                    logger.info(
+                        "Schema '%s': Not in the repository, but not empty.",
+                        name)
+        session.commit()
 
     def create_metadata(self, session):
         """
