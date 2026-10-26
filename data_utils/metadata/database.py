@@ -21,6 +21,7 @@ from sqlalchemy_utils import create_database, database_exists
 from data_utils.metadata.table import TableMeta, Base
 from data_utils.metadata.dialect import DIALECT_MAP
 from data_utils.metadata.graph import DatabaseGraph
+from data_utils.metadata.migrations import upgrade
 from data_utils.metadata.script import ScriptMeta
 
 
@@ -207,7 +208,7 @@ class DatabaseMeta():
         with engine.connect() as conn:
             schema = CreateSchema(Base.metadata.schema, if_not_exists=True)
             conn.execute(schema)
-            Base.metadata.create_all(conn, checkfirst=True)
+            upgrade(conn)
             conn.commit()
 
     @classmethod

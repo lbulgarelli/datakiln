@@ -15,7 +15,7 @@ from functools import partial
 
 from pandas._libs.parsers import STR_NA_VALUES  # pylint: disable=no-name-in-module # noqa: E501
 from sqlalchemy import MetaData as SQLAlchemyMetadata
-from sqlalchemy import ForeignKeyConstraint, select
+from sqlalchemy import ForeignKey
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -41,20 +41,8 @@ class Base(DeclarativeBase):
     metadata = SQLAlchemyMetadata(schema="__metadata")
 
 
-class Metadata(Base):
-    # pylint: disable=too-few-public-methods
-    """
-    Base metadata.
-    """
-    __tablename__ = "table_"
-
-    schema_: Mapped[str] = mapped_column(primary_key=True)
-    table_: Mapped[str] = mapped_column(primary_key=True)
-    checksum_: Mapped[str] = mapped_column()
-
-    artifact: Mapped["Artifact"] = relationship(back_populates="table")
-
-
+# Defined before the other records: otherwise pylint reports Mapped[...] as
+# unsubscriptable in the ones that follow
 class Artifact(Base):
     # pylint: disable=too-few-public-methods
     """
@@ -63,18 +51,87 @@ class Artifact(Base):
     __tablename__ = "artifact_"
 
     path_: Mapped[str] = mapped_column(primary_key=True)
-    schema_: Mapped[str] = mapped_column()
-    table_: Mapped[str] = mapped_column()
+    name_: Mapped[str] = mapped_column(
+        ForeignKey("table_.name_", ondelete="CASCADE"))
     checksum_: Mapped[str] = mapped_column()
 
-    __table_args__ = (
-        ForeignKeyConstraint(
-            ["table_", "schema_"],
-            ["table_.table_", "table_.schema_"]
-        ),
-    )
-
     table: Mapped["Metadata"] = relationship(back_populates="artifact")
+
+
+class Object(Base):
+    """
+    Object built in the database, from the metadata of a table or from a
+    script. The metadata of the kinds of object are in their own tables.
+    """
+    __tablename__ = "object_"
+
+    name_: Mapped[str] = mapped_column(primary_key=True)
+    kind_: Mapped[str] = mapped_column()
+    checksum_: Mapped[str] = mapped_column()
+
+    __mapper_args__ = {"polymorphic_on": "kind_", "with_polymorphic": "*"}
+
+    @property
+    def schema(self):
+        """Schema the object is in, if it is in one."""
+        raise NotImplementedError
+
+    @property
+    def drops(self):
+        """Statements that drop the object."""
+        raise NotImplementedError
+
+
+class Metadata(Object):
+    """
+    Table built from its metadata.
+    """
+    __tablename__ = "table_"
+
+    name_: Mapped[str] = mapped_column(
+        ForeignKey("object_.name_", ondelete="CASCADE"), primary_key=True)
+
+    artifact: Mapped["Artifact"] = relationship(
+        back_populates="table", passive_deletes=True)
+
+    __mapper_args__ = {"polymorphic_identity": "table"}
+
+    @property
+    def schema(self):
+        return self.name_.partition(".")[0]
+
+    @property
+    def drops(self):
+        # The table and its stage
+        schema, _, table = self.name_.partition(".")
+        return [
+            f"DROP TABLE IF EXISTS {stage}.{table} CASCADE"
+            for stage in (schema, f"_{schema}")
+        ]
+
+
+class Script(Object):
+    """
+    Derive script, which creates one object.
+    """
+    __tablename__ = "script_"
+
+    name_: Mapped[str] = mapped_column(
+        ForeignKey("object_.name_", ondelete="CASCADE"), primary_key=True)
+    drop_: Mapped[str] = mapped_column()
+
+    __mapper_args__ = {"polymorphic_identity": "script"}
+
+    @property
+    def schema(self):
+        # A function is not in a schema, and a schema is its own name
+        if "(" in self.name_:
+            return None
+        return self.name_.partition(".")[0]
+
+    @property
+    def drops(self):
+        return [self.drop_] if self.drop_ else []
 
 
 class TableBase():
@@ -712,16 +769,14 @@ class TableMeta(TableBase):
         :type session: data_utils.metadata.database.Session
         """
         # Table metadata
-        meta = Metadata(
-            schema_=self.schema, table_=self.name, checksum_=self.checksum)
+        meta = Metadata(name_=self.full_name, checksum_=self.checksum)
         session.merge(meta)
 
         # Artifact metadata
         repo_dir = Path(self.artifact["repo"].root_dir)
         data_path = Path(repo_dir.name) / self.artifact["name"]
         artifact = Artifact(
-            path_=str(data_path),
-            schema_=self.schema, table_=self.name,
+            path_=str(data_path), name_=self.full_name,
             checksum_=self.artifact["md5"])
         session.merge(artifact)
 
@@ -730,16 +785,12 @@ class TableMeta(TableBase):
         :param session: Database Session.
         :type session: data_utils.metadata.database.Session
         """
-        stmt = select(Metadata).where(
-            Metadata.schema_ == self.schema,
-            Metadata.table_ == (self.name)
-        )
-        metadata = session.execute(stmt).fetchone()
+        metadata = session.get(Metadata, self.full_name)
 
         return (
             metadata is None or
-            metadata[0].checksum_ != self.checksum or
-            metadata[0].artifact.checksum_ != self.artifact["md5"]
+            metadata.checksum_ != self.checksum or
+            metadata.artifact.checksum_ != self.artifact["md5"]
         )
 
     @classmethod
