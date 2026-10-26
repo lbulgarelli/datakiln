@@ -17,6 +17,8 @@ def main(args=None):
     parser = get_parser()
     parser.add_argument("--grant", metavar="grant", type=str, nargs='+',
                         help="Grant read permissions to specified users")
+    parser.add_argument("--rebuild-all", action="store_true",
+                        help="Run all derive scripts, even if up to date")
     args = parser.parse_args(args)
     setup_logging(args.stdout, "build.log")
 
@@ -60,7 +62,7 @@ def main(args=None):
 
     # Run views
     session.close()
-    database.execute_derive(session)
+    database.execute_derive(session, updated, force=args.rebuild_all)
 
     # Grant read permissions on entire database
     database.grant(session, args.grant)

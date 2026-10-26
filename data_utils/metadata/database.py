@@ -18,7 +18,7 @@ from sqlalchemy.schema import CreateSchema
 from decouple import Config, RepositoryEmpty, RepositoryEnv
 from sqlalchemy_utils import create_database, database_exists
 
-from data_utils.metadata.table import TableMeta, Base
+from data_utils.metadata.table import TableMeta, Script, Base
 from data_utils.metadata.dialect import DIALECT_MAP
 from data_utils.metadata.graph import DatabaseGraph
 from data_utils.metadata.migrations import upgrade
@@ -188,16 +188,52 @@ class DatabaseMeta():
             # Execute query
             session.execute(sql, **kwargs)
 
-    def execute_derive(self, session, **kwargs):
+    def execute_derive(self, session, rebuilt=(), force=False, record=True,
+                       **kwargs):
         """Executes the derive scripts, each one after the scripts that create
         the objects it uses.
 
         :param session: Database Session.
         :type session: data_utils.metadata.database.Session
+
+        :param rebuilt: Tables that were rebuilt. Only the scripts that
+                        changed, or that use something rebuilt, are executed.
+        :type rebuilt: list[data_utils.metadata.table.TableMeta]
+
+        :param force: Execute all scripts, even if they are up to date.
+        :type force: bool
+
+        :param record: Whether to save the scripts executed to the metadata,
+                       which is what tells later runs they are up to date.
+        :type record: bool
         """
+        rebuilt = {table.full_name for table in rebuilt}
+
         for script in self.graph.scripts:
-            logger.info("Script '%s': RUNNING", script.path)
+            name = script.full_name
+            saved = session.get(Script, name) if record else None
+
+            # Anything that uses a rebuilt object has to be rebuilt as well
+            if (
+                not force
+                and saved
+                and saved.checksum_ == script.checksum
+                and not self.graph.adj[name] & rebuilt
+            ):
+                logger.info("Script '%s': Already up to date.", script.path)
+                continue
+
+            logger.info("Script '%s': Running.", script.path)
             session.execute(script.sql, **kwargs)
+            rebuilt.add(name)
+
+            if record:
+                session.merge(Script(
+                    name_=name,
+                    checksum_=script.checksum,
+                    drop_=script.drop
+                ))
+                session.commit()
 
     def create_metadata(self, session):
         """
