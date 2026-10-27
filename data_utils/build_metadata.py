@@ -158,7 +158,7 @@ def main(args=None):
         extension = "".join(data_path.suffixes).lower()
         if extension not in SUPPORTED_EXTENSIONS:
             continue
-        logger.info("GENERATING METADATA: %s", data_path)
+        logger.info("File '%s': Generating metadata.", data_path)
 
         # Read file
         params = {}

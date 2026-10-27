@@ -147,7 +147,7 @@ def main(args=None):
 
             for _, table in metadata.tables.items():
                 # Generate table metadata
-                logger.info("GENERATING TABLE METADATA: %s", table)
+                logger.info("Table '%s': Generating metadata.", table)
                 MetadataExtractor.generate_table_meta(
                     meta_dir,
                     table,

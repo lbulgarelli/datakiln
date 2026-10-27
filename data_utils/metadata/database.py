@@ -183,7 +183,7 @@ class DatabaseMeta():
         :type ignore: str
         """
         for file_name in sorted(self._files(directory, "**/*.sql")):
-            logger.info("Script '%s': RUNNING",
+            logger.info("Script '%s': Running.",
                         file_name.relative_to(self.directory))
 
             # Load file

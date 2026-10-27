@@ -289,7 +289,7 @@ class TempTableStrategy(ExecutionStrategy):
                     idx.create(bind=session.bind)
                 except SQLAlchemyError as err:
                     logger.warning(
-                        "FAILED TO CREATE INDEX ON '%s': %s",
+                        "Table '%s': Failed to create index (%s).",
                         ".".join(table_parts), err
                     )
 
@@ -313,7 +313,7 @@ class TempTableStrategy(ExecutionStrategy):
 
     def execute(self, task: ExtractMeta, export_to: Optional[Path] = None):
         # pylint: disable=too-many-locals
-        logger.info("EXTRACTING TABLE: %s", task.name)
+        logger.info("Table '%s': Extracting.", task.name)
 
         with self.session() as session:
             # TempTableStrategy is never read-only, but multiple OR groups
@@ -371,7 +371,7 @@ class TempTableStrategy(ExecutionStrategy):
                 session.execute(DropTable(sa_table, if_exists=True))
                 session.commit()
             except SQLAlchemyError as err:
-                logger.warning("COULD NOT DROP TABLE '%s': %s", name, err)
+                logger.warning("Table '%s': Could not drop (%s).", name, err)
             finally:
                 self.created_tables.remove(name)
 
@@ -381,7 +381,7 @@ class TempTableStrategy(ExecutionStrategy):
         if cohort in self.cohorts:
             return self.cohorts[cohort]
 
-        logger.info("GENERATING COHORT DATA: %s", cohort)
+        logger.info("Cohort '%s': Generating data.", cohort)
 
         name = cohort.replace(".sql", "").replace(".", "_")
         name = f'tmp_{name}_{UUID}'
@@ -445,14 +445,15 @@ class TempTableStrategy(ExecutionStrategy):
     def drop_cohort(self, cohort: str):
         """Drop a specific cohort table."""
         if cohort in self.cohorts:
-            logger.info("DROPPING COHORT DATA: %s", cohort)
+            logger.info("Cohort '%s': Dropping data.", cohort)
             try:
                 with self.session() as session:
                     sa_table = Table(self.cohorts[cohort], MetaData())
                     session.execute(DropTable(sa_table, if_exists=True))
                     session.commit()
             except SQLAlchemyError as err:
-                logger.warning("COULD NOT DROP COHORT %s: %s", cohort, err)
+                logger.warning(
+                    "Cohort '%s': Could not drop (%s).", cohort, err)
             finally:
                 del self.cohorts[cohort]
 
@@ -611,7 +612,7 @@ class StreamStrategy(ExecutionStrategy):
         target_dir = export_to or (self.directory / "data" / ".tmp")
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info("EXTRACTING TABLE: %s", task.name)
+        logger.info("Table '%s': Extracting.", task.name)
 
         with self.session() as session:
             # Export to a CSV file
@@ -648,7 +649,7 @@ class StreamStrategy(ExecutionStrategy):
     def drop_cohort(self, cohort: str):
         """Clear cohort from memory (no DDL in stream mode)."""
         if cohort in self.cohorts:
-            logger.info("DROPPING COHORT DATA: %s", cohort)
+            logger.info("Cohort '%s': Dropping data.", cohort)
             del self.cohorts[cohort]
 
     def get_cohort(self, cohort: str) -> Any:
@@ -796,7 +797,7 @@ class ParallelExecutor:
     def _register_signal_handlers(self):
         """Register signal handlers to guarantee cleanup on abort."""
         def _handler(signum, _frame):
-            logger.error("Received signal %s, aborting pipeline...", signum)
+            logger.error("Pipeline: Received signal %s, aborting.", signum)
             self.strategy.abort.set()
             self.strategy.cleanup()
             os._exit(1)
@@ -847,7 +848,7 @@ class ParallelExecutor:
                             self._on_task_complete(task_name)
                         break  # Go back to the loop to submit new ready tasks
                     except (SQLAlchemyError, OSError) as e:
-                        logger.error("FAILED TASK %s: %s", task_name, e)
+                        logger.error("Task '%s': Failed (%s).", task_name, e)
                         self.strategy.cleanup()
                         os._exit(1)
 

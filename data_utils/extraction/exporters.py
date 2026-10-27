@@ -43,7 +43,7 @@ class MetadataExtractor:
         tables: List[str]
     ) -> MetaData:
         """Generate column metadata from DBMS."""
-        logger.info("RETRIEVING SCHEMA METADATA: %s", schema)
+        logger.info("Schema '%s': Retrieving metadata.", schema)
         metadata = MetaData(schema=schema)
         metadata.reflect(bind=session.bind, only=tables, views=True)
         return metadata
@@ -143,7 +143,7 @@ class DataExporter:
                 encoding='utf-8',
                 newline=''
             ) as o_file:
-                logger.info("STREAMING DATA TO: %s", export_path.name)
+                logger.info("File '%s': Streaming data.", export_path.name)
                 writer = csv.writer(o_file)
                 count = 0
                 idx = 0
@@ -171,8 +171,8 @@ class DataExporter:
                 for partition in result.partitions(chunk_size):
                     if abort and abort.is_set():
                         logger.warning(
-                            "Pipeline aborted, stopping extraction for %s",
-                            table_name
+                            "Table '%s': Pipeline aborted, stopping "
+                            "extraction.", table_name
                         )
                         break
 
@@ -203,10 +203,11 @@ class DataExporter:
                         _insert_batch(batch_inserts)
 
                     logger.info(
-                        "PROCESSED CHUNK %d ON %s (ACCUMULATED %d ROWS)",
-                        chunk_idx, table_name, count
+                        "Table '%s': Processed chunk %d, %d rows so far.",
+                        table_name, chunk_idx, count
                     )
 
-                logger.info("EXTRACTED %d ROWS FROM %s", count, table_name)
+                logger.info(
+                    "Table '%s': Extracted %d rows.", table_name, count)
 
         return hash_writer.hasher.hexdigest()

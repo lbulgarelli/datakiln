@@ -27,7 +27,7 @@ def get_id(project):
     """
 
     # Retrieve project's ID field
-    logger.info("REDCAP: RETRIEVING ID FIELD")
+    logger.info("REDCap: Retrieving ID field.")
 
     # REDCAP's ID and event name (project dependent)
     subject_id = {
@@ -60,7 +60,7 @@ def get_metadata(project):
     """
 
     # Retrieve project metadata
-    logger.info("REDCAP: RETRIEVING METADATA")
+    logger.info("REDCap: Retrieving metadata.")
     metadata = project.export_metadata(format_type="df")
     metadata = metadata.loc[metadata.field_type != "descriptive"]
 
@@ -229,7 +229,7 @@ def generate_table_data(project, form_name, form_meta,
     :rtype: pandas.DataFrame
     """
     # Retrieve data from REDCap
-    logger.info("GENERATING TABLE DATA: %s", form_name)
+    logger.info("Form '%s': Generating table data.", form_name)
     data = project.export_records(
         format_type='df', forms=[form_name], decimal_character=".",
         df_kwargs={"index_col": None, "na_values": na_values or []})
@@ -271,14 +271,17 @@ def generate_table_data(project, form_name, form_meta,
             # If columns still differ
             if diff_columns:
                 logger.warning(
-                    "DATA AND METADATA FIELDS DIFFER: %s", diff_columns)
+                    "Form '%s': Data and metadata fields differ: %s.",
+                    form_name, diff_columns)
 
         # Exist in meta but not in data
         elif not diff_columns:
             diff_columns = list(set(meta_columns) - set(data_columns))
-            logger.warning("METADATA AND DATA FIELDS DIFFER: %s", diff_columns)
+            logger.warning(
+                "Form '%s': Metadata and data fields differ: %s.",
+                form_name, diff_columns)
             form_meta = form_meta.drop(diff_columns, axis='rows')
-            logger.warning("METADATA COLUMNS DROPPED SUCESSFULLY.")
+            logger.warning("Form '%s': Metadata columns dropped.", form_name)
 
     # Checkbox fields are multiple columns, so we group them into an array
     # comorbidity_1, comorbidity_2    to    comorbidity
@@ -327,7 +330,7 @@ def main(args=None):
     directory = Path(args.directory).absolute()
 
     # API parameters
-    logger.info("REDCAP: CONNECTING TO API")
+    logger.info("REDCap: Connecting to API.")
     project = Project(args.api_url, args.api_key)
 
     # Get subject ID field and redcap event ID
@@ -369,7 +372,7 @@ def main(args=None):
 
         # Generate table metadata from form
         if args.json:
-            logger.info("GENERATING TABLE METADATA: %s", form_name)
+            logger.info("Form '%s': Generating table metadata.", form_name)
             table_meta = generate_table_meta(
                 form_name,
                 form_meta,
