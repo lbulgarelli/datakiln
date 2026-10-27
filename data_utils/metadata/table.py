@@ -780,12 +780,22 @@ class TableMeta(TableBase):
             checksum_=self.artifact["md5"])
         session.merge(artifact)
 
+    def record(self, session):
+        """Record of the table in the metadata, if it was built.
+
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
+
+        :rtype: data_utils.metadata.table.Metadata
+        """
+        return session.get(Metadata, self.full_name)
+
     def is_updated(self, session):
         """
         :param session: Database Session.
         :type session: data_utils.metadata.database.Session
         """
-        metadata = session.get(Metadata, self.full_name)
+        metadata = self.record(session)
 
         return (
             metadata is None or

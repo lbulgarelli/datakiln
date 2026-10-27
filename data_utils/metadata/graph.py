@@ -1,8 +1,10 @@
 """
 Dependency graphs for metadata objects.
 """
+from dataclasses import dataclass
 from functools import cached_property
-from typing import Dict, List, Optional, Set
+from operator import attrgetter
+from typing import Dict, Iterable, List, Optional, Set
 from graphlib import TopologicalSorter, CycleError
 
 from data_utils.metadata.script import ScriptMeta, ScriptError
@@ -12,40 +14,48 @@ from data_utils.metadata.table import TableMeta
 class DependentsMap(dict):
     """Successor map from adjacency map."""
 
-    def __init__(self, adj: Dict[str, Set[str]]):
+    def __init__(self, adj: Dict[object, Set]):
         super().__init__()
         for node, predecessors in adj.items():
             for pred in predecessors:
                 self.setdefault(pred, set()).add(node)
 
-    def count(self) -> Dict[str, int]:
+    def count(self) -> Dict[object, int]:
         """Returns the reference counts for each node."""
         return {node: len(deps) for node, deps in self.items()}
 
-    def as_list(self) -> Dict[str, List[str]]:
+    def as_list(self) -> Dict[object, List]:
         """Returns the dependents map with sets converted to lists."""
         return {node: list(deps) for node, deps in self.items()}
+
+
+@dataclass(frozen=True)
+class Unresolved:
+    """Name that nodes require, which is not a node. Two with the same name are
+    the same dependency."""
+
+    full_name: str
 
 
 class DependencyGraph:
     # pylint: disable=too-few-public-methods
     """Directed Acyclic Graph for nodes that depend on one another.
 
-    Nodes list the names of the nodes they `requires`. Required names that are
-    not nodes (e.g. tables loaded elsewhere) are ignored, unless
-    `keep_unresolved` is set, in which case they become dependencies that are
-    not part of the nodes.
+    Nodes list the names of the nodes they `requires`, which the graph turns
+    into the nodes themselves. Required names that are not nodes (e.g. tables
+    loaded elsewhere) are ignored, unless `keep_unresolved` is set, in which
+    case they become dependencies of the nodes that are `Unresolved` objects,
+    which are not part of the nodes.
 
-    Nodes that become ready at the same time are ordered by name, so the order
-    does not depend on the order the nodes are given.
+    Nodes have a `full_name`, which tells them apart in errors.
     """
 
-    def __init__(self, nodes: Dict[str, object],
+    def __init__(self, nodes: List,
                  keep_unresolved: bool = False,
-                 aliases: Optional[Dict[str, Set[str]]] = None):
+                 aliases: Optional[Dict[str, Set]] = None):
         """
-        :param nodes: Nodes with `requires`, by name.
-        :type nodes: dict[str, object]
+        :param nodes: Nodes with a `full_name` and what they `requires`.
+        :type nodes: list[object]
 
         :param keep_unresolved: Keep required names that are not nodes as
                                 dependencies.
@@ -54,21 +64,28 @@ class DependencyGraph:
         :param aliases: Names that stand for several nodes, which are all
                         dependencies of the nodes requiring the name. A node
                         is never a dependency of itself this way.
-        :type aliases: dict[str, set[str]]
+        :type aliases: dict[str, set[object]]
         """
-        self.nodes = nodes
+        # By name, which is how what the nodes require is found
+        self.nodes: Dict[str, object] = {}
+        for node in nodes:
+            self.nodes[node.full_name] = node
         aliases = aliases or {}
 
-        self.adj: Dict[str, Set[str]] = {}
-        for name, node in nodes.items():
-            self.adj[name] = set()
+        self.unresolved: Set[Unresolved] = set()
+
+        self.adj: Dict[object, Set] = {}
+        for node in self.nodes.values():
+            self.adj[node] = set()
             for required in node.requires:
-                if required in nodes:
-                    self.adj[name].add(required)
+                if required in self.nodes:
+                    self.adj[node].add(self.nodes[required])
                 elif required in aliases:
-                    self.adj[name] |= aliases[required] - {name}
+                    self.adj[node] |= aliases[required] - {node}
                 elif keep_unresolved:
-                    self.adj[name].add(required)
+                    unresolved = Unresolved(required)
+                    self.unresolved.add(unresolved)
+                    self.adj[node].add(unresolved)
 
     @property
     def topological_sorter(self) -> TopologicalSorter:
@@ -80,7 +97,7 @@ class DependencyGraph:
         try:
             sorter.prepare()
         except CycleError as error:
-            cycle = " -> ".join(error.args[1])
+            cycle = " -> ".join(map(attrgetter("full_name"), error.args[1]))
             raise ValueError(f"Circular dependency: {cycle}") from error
         return sorter
 
@@ -88,6 +105,54 @@ class DependencyGraph:
     def dependents(self) -> DependentsMap:
         """Map each node to the set of nodes that depend on it."""
         return DependentsMap(self.adj)
+
+    @staticmethod
+    def _reach(nodes: Iterable, edges: Dict[object, Iterable]) -> Set:
+        """Nodes adjacent to the specified nodes by the edges, directly or
+        indirectly."""
+        reached: Set = set()
+        queue = list(nodes)
+        while queue:
+            for other in edges.get(queue.pop(), ()):
+                if other not in reached:
+                    reached.add(other)
+                    queue.append(other)
+        return reached
+
+    def find(self, names: Iterable[str]) -> Set:
+        """Nodes by name.
+
+        :param names: Names of nodes of the graph.
+        :type names: Iterable[str]
+
+        :return: The nodes.
+        :rtype: set[object]
+
+        :raises ValueError: If any of the names is not a node.
+        """
+        names = list(names)
+        unknown = set(names) - set(self.nodes)
+        if unknown:
+            raise ValueError(f"Not found: {', '.join(sorted(unknown))}.")
+
+        found = set()
+        for name in names:
+            found.add(self.nodes[name])
+        return found
+
+    def requirements(self, nodes: Iterable) -> Set:
+        """The specified nodes, with the nodes they need, directly or
+        indirectly. Names that are not nodes are left out.
+
+        :param nodes: Nodes of the graph.
+        :type nodes: Iterable[object]
+
+        :return: The nodes and what they need.
+        :rtype: set[object]
+        """
+        nodes = list(nodes)
+        needed = set(nodes) | self._reach(nodes, self.adj)
+        return needed - self.unresolved
 
     def sort(self) -> List:
         """Perform topological sort to determine execution order.
@@ -102,10 +167,10 @@ class DependencyGraph:
 
         ordered = []
         while sorter.is_active():
-            for name in sorted(sorter.get_ready()):
-                if name in self.nodes:
-                    ordered.append(self.nodes[name])
-                sorter.done(name)
+            for node in sorter.get_ready():
+                if not isinstance(node, Unresolved):
+                    ordered.append(node)
+                sorter.done(node)
         return ordered
 
 
@@ -122,22 +187,22 @@ class DatabaseGraph(DependencyGraph):
         :param scripts: Scripts that create objects from the tables.
         :type scripts: list[ScriptMeta]
         """
-        nodes = {table.full_name: table for table in tables}
-        overloads: Dict[str, Set[str]] = {}
+        created = {table.full_name: table for table in tables}
+        overloads: Dict[str, Set] = {}
         for script in scripts:
             # An object can only be created once
-            if other := nodes.get(script.full_name):
+            if other := created.get(script.full_name):
                 creator = getattr(other, "path", "the metadata")
                 raise ScriptError(script.path, f"duplicate in {creator}.")
-            nodes[script.full_name] = script
+            created[script.full_name] = script
 
             # Calls do not tell which overload of a function is used, so they
             # refer to all of them
             function, parenthesis, _ = script.full_name.partition("(")
             if parenthesis:
-                overloads.setdefault(function, set()).add(script.full_name)
+                overloads.setdefault(function, set()).add(script)
 
-        super().__init__(nodes, aliases=overloads)
+        super().__init__(list(created.values()), aliases=overloads)
 
     @property
     def tables(self) -> List:

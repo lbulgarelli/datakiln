@@ -13,6 +13,8 @@ from sqlglot.errors import ParseError
 from sqlglot.parser import Parser
 from sqlglot.tokens import TokenType
 
+from data_utils.metadata.table import Script
+
 
 PUBLIC = "public"
 FUNCTION_SCHEMA = (
@@ -89,6 +91,16 @@ class ScriptMeta:
         """
         with open(path, "r", encoding="utf-8") as file:
             return cls(path.relative_to(directory), file.read(), dialect)
+
+    def record(self, session):
+        """Record of the script in the metadata, if it was built.
+
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
+
+        :rtype: data_utils.metadata.table.Script
+        """
+        return session.get(Script, self.full_name)
 
     def _parse(self, sql: str) -> List[exp.Expression]:
         """Parse SQL, reporting the syntax that sqlglot cannot parse.

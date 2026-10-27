@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from functools import cached_property
 from threading import RLock
-from typing import List, Dict, Set, Optional, Iterator, Any, Tuple
+from typing import List, Dict, Optional, Iterator, Any, Tuple, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
@@ -31,6 +31,7 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.selectable import Values
 
 from data_utils.metadata.database import DatabaseMeta, Session
+from data_utils.metadata.graph import Unresolved
 from data_utils.extraction.models import (
     UUID, ExtractMeta, ExtractGraph, FilterConfig
 )
@@ -313,7 +314,7 @@ class TempTableStrategy(ExecutionStrategy):
 
     def execute(self, task: ExtractMeta, export_to: Optional[Path] = None):
         # pylint: disable=too-many-locals
-        logger.info("Table '%s': Extracting.", task.name)
+        logger.info("Table '%s': Extracting.", task.full_name)
 
         with self.session() as session:
             # TempTableStrategy is never read-only, but multiple OR groups
@@ -341,7 +342,7 @@ class TempTableStrategy(ExecutionStrategy):
 
             # Create destination table
             self.created_tables.add(temp_table)
-            self.cohorts[task.name] = temp_table
+            self.cohorts[task.full_name] = temp_table
             dest_table.create(session.bind)
 
             # Fallback to .tmp dir if export_to is not specified
@@ -350,7 +351,7 @@ class TempTableStrategy(ExecutionStrategy):
             export_path = target_dir / f"{task.table}.csv.gz"
 
             # Write to CSV and inserting simultaneously
-            self.csv_hashes[task.name] = DataExporter.stream_to_csv(
+            self.csv_hashes[task.full_name] = DataExporter.stream_to_csv(
                 session,
                 query,
                 export_path,
@@ -612,13 +613,13 @@ class StreamStrategy(ExecutionStrategy):
         target_dir = export_to or (self.directory / "data" / ".tmp")
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info("Table '%s': Extracting.", task.name)
+        logger.info("Table '%s': Extracting.", task.full_name)
 
         with self.session() as session:
             # Export to a CSV file
             query = self.build_queries(task)
             export_path = target_dir / f"{task.table}.csv.gz"
-            self.csv_hashes[task.name] = DataExporter.stream_to_csv(
+            self.csv_hashes[task.full_name] = DataExporter.stream_to_csv(
                 session,
                 query,
                 export_path,
@@ -789,7 +790,7 @@ class ParallelExecutor:
 
         # graphlib topological sorter for parallel orchestration
         self.ts = graph.topological_sorter
-        self.live_tasks = {}
+        self.live_tasks = set()
 
         # Register signal handlers for clean abort
         self._register_signal_handlers()
@@ -809,25 +810,25 @@ class ParallelExecutor:
 
     def execute(
         self,
-        execute: Optional[Set[str]] = None,
-        export: Optional[Set[str]] = None,
-        data_dir: Optional[Path] = None
+        data_dir: Path
     ):
-        """Run tasks in parallel using TopologicalSorter interactive mode."""
+        """Run tasks in parallel using TopologicalSorter interactive mode.
+
+        :param data_dir: Directory of the data of the tasks to export.
+        :type data_dir: Path
+        """
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {}
 
             while self.ts.is_active():
                 # Submit all ready tasks
-                for name in self.ts.get_ready():
+                for node in self.ts.get_ready():
                     task = executor.submit(
                         self._run_task,
-                        name,
-                        execute,
-                        export,
+                        node,
                         data_dir
                     )
-                    futures[task] = name
+                    futures[task] = node
 
                 if not futures:
                     # This shouldn't happen if is_active is true,
@@ -839,81 +840,66 @@ class ParallelExecutor:
 
                 # Wait for at least one task to complete
                 for future in as_completed(futures):
-                    task_name = futures.pop(future)
+                    node = futures.pop(future)
                     try:
                         future.result()
                         with self.lock:
-                            self.ts.done(task_name)
+                            self.ts.done(node)
                             # Trigger cleanup and get new ready tasks
-                            self._on_task_complete(task_name)
+                            self._on_task_complete(node)
                         break  # Go back to the loop to submit new ready tasks
                     except (SQLAlchemyError, OSError) as e:
-                        logger.error("Task '%s': Failed (%s).", task_name, e)
+                        logger.error(
+                            "Task '%s': Failed (%s).", node.full_name, e)
                         self.strategy.cleanup()
                         os._exit(1)
 
     def _run_task(
         self,
-        name: str,
-        execute: Optional[Set[str]],
-        export: Optional[Set[str]],
-        data_dir: Optional[Path]
+        node: Union[ExtractMeta, Unresolved],
+        data_dir: Path
     ):
         """Execute a task (table extraction or cohort initialization)."""
-        if execute is not None and name not in execute:
-            return
-
         # Start a managed session for this task
         with self.strategy.session():
             # Table extraction task
-            if name in self.graph.tasks:
-                task = self.graph.tasks[name]
-                should_export = export is None or task.name in export
-                export_to = data_dir if should_export else None
+            if isinstance(node, ExtractMeta):
+                export_to = data_dir if node in self.graph.export else None
 
                 with self.lock:
-                    self.live_tasks[name] = task
+                    self.live_tasks.add(node)
 
-                self.strategy.execute(task, export_to=export_to)
+                self.strategy.execute(node, export_to=export_to)
             # Cohort node
             else:
-                self.strategy.get_cohort(name)
+                self.strategy.get_cohort(node.full_name)
 
-    def _on_task_complete(self, name: str):
+    def _on_task_complete(self, node: Union[ExtractMeta, Unresolved]):
         """Perform cleanup for dependencies no longer needed."""
         to_drop_cohorts = []
         to_drop_tables = []
 
         with self.lock:
-            # Retrieve dependencies for the node that just finished
-            if name in self.graph.tasks:
-                task = self.graph.tasks[name]
-                deps = task.requires
-            else:
-                # Cohorts currently have no prerequisites in the graph
-                deps = set()
-                task = None
-
-            for dep in deps:
+            # Cohorts currently have no prerequisites in the graph
+            for dep in self.graph.adj.get(node, ()):
                 # Decrement ref counts of dependencies used by THIS node
                 self.ref_counts[dep] -= 1
 
                 # If no other nodes depend on this dependency, drop it
                 if self.ref_counts[dep] == 0:
-                    if dep in self.strategy.cohorts:
-                        to_drop_cohorts.append(dep)
+                    if dep.full_name in self.strategy.cohorts:
+                        to_drop_cohorts.append(dep.full_name)
                     elif dep in self.live_tasks:
-                        to_drop_tables.append(self.live_tasks[dep].temp_name)
-                        del self.live_tasks[dep]
+                        to_drop_tables.append(dep.temp_name)
+                        self.live_tasks.remove(dep)
 
             # Check if THIS node itself is no longer needed by anyone else
-            if self.ref_counts.get(name, 0) == 0:
-                if task:
-                    to_drop_tables.append(task.temp_name)
-                    if name in self.live_tasks:
-                        del self.live_tasks[name]
-                elif name in self.strategy.cohorts:
-                    to_drop_cohorts.append(name)
+            if self.ref_counts.get(node, 0) == 0:
+                if isinstance(node, ExtractMeta):
+                    to_drop_tables.append(node.temp_name)
+                    self.live_tasks.discard(node)
+                elif node.full_name in self.strategy.cohorts:
+                    to_drop_cohorts.append(node.full_name)
 
         # Execute drops outside of the lock
         for dep in to_drop_cohorts:

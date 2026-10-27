@@ -10,7 +10,8 @@ from pathlib import Path
 from itertools import repeat
 from functools import cached_property
 from typing import (
-    List, Dict, Set, Optional, Any, Tuple, Iterator, Union, TYPE_CHECKING
+    List, Dict, Set, Optional, Any, Tuple, Iterator, Iterable, Union,
+    TYPE_CHECKING
 )
 
 from sqlalchemy import (
@@ -604,7 +605,7 @@ class ExtractMeta:
                 self.filters.append([FilterConfig(**f)])
 
     @property
-    def name(self) -> str:
+    def full_name(self) -> str:
         """Returns the full table name (schema.table)."""
         return f"{self.schema}.{self.table}"
 
@@ -664,11 +665,46 @@ class ExtractGraph(DependencyGraph):
     extracted) are kept, so they can be orchestrated by the executor.
     """
 
-    def __init__(self, tasks: List[ExtractMeta]):
-        super().__init__(
-            {task.name: task for task in tasks},
-            keep_unresolved=True
-        )
+    def __init__(self, tasks: Iterable[ExtractMeta],
+                 export: Optional[Set[ExtractMeta]] = None):
+        """
+        :param tasks: Extraction tasks.
+        :type tasks: Iterable[ExtractMeta]
+
+        :param export: Tasks whose data is exported. The other tasks are only
+                       extracted, because they are needed. All by default.
+        :type export: set[ExtractMeta]
+        """
+        super().__init__(tasks, keep_unresolved=True)
+        self.export = set(tasks) if export is None else export
+
+    @classmethod
+    def select(cls, tasks: List[ExtractMeta],
+               include: Optional[List[str]] = None) -> 'ExtractGraph':
+        """Graph of the tasks to export, and the tasks they need.
+
+        :param tasks: Extraction tasks.
+        :type tasks: list[ExtractMeta]
+
+        :param include: Names of the tasks to export. All by default.
+        :type include: list[str]
+
+        :raises ValueError: If any of the names is not a task.
+        """
+        # The graph of all the tasks, which is the one to export by default,
+        # and which tells what each task needs
+        graph = cls(tasks)
+        if not include:
+            return graph
+
+        # The names must be tasks of the graph, since they are the ones the
+        # user wants to export
+        export = graph.find(include)
+
+        # Keep only the tasks to export and the ones they need, directly or
+        # indirectly, since they have to be extracted first. The others are
+        # left out of the graph
+        return cls(graph.requirements(export), export)
 
     @property
     def tasks(self) -> Dict[str, ExtractMeta]:

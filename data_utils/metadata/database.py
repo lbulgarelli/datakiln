@@ -13,7 +13,7 @@ from sqlglot import exp
 from dvc.api import DVCFileSystem
 from sqlalchemy.orm.session import Session as SQLAlchemySession
 from sqlalchemy import (
-    create_engine, delete, select, text, URL, event, Engine
+    create_engine, select, text, URL, event, Engine
 )
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlalchemy.schema import CreateSchema
@@ -49,7 +49,7 @@ class DatabaseMeta():
         self.name = name
 
         # Objects built before that are no longer in the repo
-        self.stale = {}
+        self.stale = []
 
         # Retrieve files to ignore
         self.ignore = []
@@ -202,15 +202,17 @@ class DatabaseMeta():
 
         :raises ValueError: If what is in the repo requires any of them.
         """
-        self.stale = {}
+        self.stale = []
         for built in session.execute(select(Object)).scalars():
             if built.name_ not in self.graph.nodes:
                 # The pipeline commits, which would expire it
                 session.expunge(built)
-                self.stale[built.name_] = built
+                self.stale.append(built)
 
         # They are dropped at the end, so nothing in the repo can use them
-        for name in sorted(self.stale):
+        for built in self.stale:
+            name = built.name_
+
             # A call names a function without its parameters, and it is not
             # known which overload it uses
             function = name.partition("(")[0]
@@ -240,25 +242,25 @@ class DatabaseMeta():
                        which is what tells later runs they are up to date.
         :type record: bool
         """
-        rebuilt = {table.full_name for table in rebuilt}
+        rebuilt = set(rebuilt)
 
         for script in self.graph.scripts:
             name = script.full_name
-            saved = session.get(Script, name) if record else None
+            saved = script.record(session) if record else None
 
             # Anything that uses a rebuilt object has to be rebuilt as well
             if (
                 not force
                 and saved
                 and saved.checksum_ == script.checksum
-                and not self.graph.adj[name] & rebuilt
+                and not self.graph.adj[script] & rebuilt
             ):
                 logger.info("Script '%s': Already up to date.", script.path)
                 continue
 
             logger.info("Script '%s': Running.", script.path)
             session.execute(script.sql, **kwargs)
-            rebuilt.add(name)
+            rebuilt.add(script)
 
             if record:
                 session.merge(Script(
@@ -280,12 +282,11 @@ class DatabaseMeta():
         :type drop: bool
         """
         verb = "Dropping." if drop else "Removed from the repository."
-        table = Object.__table__
         schemas = set()
 
-        for name, built in self.stale.items():
+        for built in self.stale:
             logger.warning("%s '%s': %s", built.kind_.capitalize(),
-                           "'.'".join(name.split(".")), verb)
+                           "'.'".join(built.name_.split(".")), verb)
             if built.schema:
                 schemas.add(built.schema)
             if not drop:
@@ -295,7 +296,7 @@ class DatabaseMeta():
                 session.execute(statement)
 
             # What is under it in the metadata goes with it
-            session.execute(delete(table).where(table.c.name_ == name))
+            session.delete(built)
 
         if not drop:
             return

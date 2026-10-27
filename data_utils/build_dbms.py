@@ -75,9 +75,8 @@ def main(args=None):
     for file in sorted(directory.glob("extract/*.json")):
         tasks.append(ExtractMeta.from_json(file))
 
-    # Build dependency graph and sort
-    graph = ExtractGraph(tasks)
-    sorted_tasks = graph.sort()
+    # Build dependency graph of the tables to export, and what they need
+    graph = ExtractGraph.select(tasks, args.include)
 
     # Initialize execution strategy
     if args.read_only:
@@ -85,33 +84,10 @@ def main(args=None):
     else:
         strategy = TempTableStrategy(db_params, directory)
 
-    # Filtering tasks
-    export_set = None
-    execute_set = None
-    if args.include:
-        # Tasks to export
-        export_set = set(args.include)
-        invalid_tasks = export_set - set(graph.tasks.keys())
-        if invalid_tasks:
-            raise ValueError(
-                "Specified table(s) not found in metadata: ",
-                {', '.join(sorted(invalid_tasks))}
-            )
-
-        # Tasks to execute (export_set + dependencies)
-        execute_set = set()
-        queue = list(export_set)
-        while queue:
-            curr = queue.pop(0)
-            if curr not in execute_set:
-                execute_set.add(curr)
-                if curr in graph.tasks:
-                    queue.extend(graph.tasks[curr].requires)
-
     # Track exported tables for metadata generation
     exported_schemas = {}
-    for task in sorted_tasks:
-        if export_set is None or task.name in export_set:
+    for task in graph.sort():
+        if task in graph.export:
             if task.schema not in exported_schemas:
                 exported_schemas[task.schema] = []
             exported_schemas[task.schema].append(task.table)
@@ -124,11 +100,7 @@ def main(args=None):
         # Initialize and run parallel executor
         executor = ParallelExecutor(strategy, graph, max_workers=args.parallel)
         try:
-            executor.execute(
-                execute=execute_set,
-                export=export_set,
-                data_dir=data_dir
-            )
+            executor.execute(data_dir=data_dir)
         finally:
             strategy.cleanup()
 
