@@ -223,17 +223,30 @@ class DatabaseMeta():
                         "the repo."
                     )
 
-    def execute_derive(self, session, rebuilt=(), force=False, record=True,
-                       **kwargs):
-        """Executes the derive scripts, each one after the scripts that create
-        the objects it uses.
+    def forget_dependents(self, session, objects):
+        """Deletes the records of the scripts that need any of the objects,
+        which are dropped with them when they are rebuilt, so the next run
+        builds them again.
 
         :param session: Database Session.
         :type session: data_utils.metadata.database.Session
 
-        :param rebuilt: Tables that were rebuilt. Only the scripts that
-                        changed, or that use something rebuilt, are executed.
-        :type rebuilt: list[data_utils.metadata.table.TableMeta]
+        :param objects: Tables or scripts.
+        :type objects: list[data_utils.metadata.table.TableMeta]
+        """
+        for node in self.graph.affected(objects):
+            if isinstance(node, ScriptMeta):
+                record = node.record(session)
+                if record:
+                    session.delete(record)
+
+    def execute_derive(self, session, force=False, record=True, **kwargs):
+        """Executes the derive scripts, each one after the scripts that create
+        the objects it uses. Only the scripts that changed, or that were not
+        built since what they use was rebuilt, are executed.
+
+        :param session: Database Session.
+        :type session: data_utils.metadata.database.Session
 
         :param force: Execute all scripts, even if they are up to date.
         :type force: bool
@@ -242,25 +255,16 @@ class DatabaseMeta():
                        which is what tells later runs they are up to date.
         :type record: bool
         """
-        rebuilt = set(rebuilt)
-
         for script in self.graph.scripts:
             name = script.full_name
             saved = script.record(session) if record else None
 
-            # Anything that uses a rebuilt object has to be rebuilt as well
-            if (
-                not force
-                and saved
-                and saved.checksum_ == script.checksum
-                and not self.graph.adj[script] & rebuilt
-            ):
+            if not force and saved and saved.checksum_ == script.checksum:
                 logger.info("Script '%s': Already up to date.", script.path)
                 continue
 
             logger.info("Script '%s': Running.", script.path)
             session.execute(script.sql, **kwargs)
-            rebuilt.add(script)
 
             if record:
                 session.merge(Script(
@@ -268,6 +272,7 @@ class DatabaseMeta():
                     checksum_=script.checksum,
                     drop_=script.drop
                 ))
+                self.forget_dependents(session, [script])
                 session.commit()
 
     def prune(self, session, drop=False):

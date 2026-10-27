@@ -154,6 +154,18 @@ class DependencyGraph:
         needed = set(nodes) | self._reach(nodes, self.adj)
         return needed - self.unresolved
 
+    def affected(self, nodes: Iterable) -> Set:
+        """Nodes that need any of the specified nodes, directly or
+        indirectly.
+
+        :param nodes: Nodes of the graph.
+        :type nodes: Iterable[object]
+
+        :return: The nodes that need them.
+        :rtype: set[object]
+        """
+        return self._reach(nodes, self.dependents)
+
     def sort(self) -> List:
         """Perform topological sort to determine execution order.
 

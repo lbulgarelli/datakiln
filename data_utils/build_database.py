@@ -61,11 +61,12 @@ def main(args=None):
         table.enforce_fks(session)
         table.create_indexes(session)
         table.create_metadata(session)
+        database.forget_dependents(session, [table])
         session.commit()
 
     # Run views
     session.close()
-    database.execute_derive(session, updated, force=args.rebuild_all)
+    database.execute_derive(session, force=args.rebuild_all)
 
     # Objects whose metadata or script was removed
     database.prune(session, drop=args.prune)
