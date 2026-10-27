@@ -230,15 +230,29 @@ class ExecutionStrategy(ABC):
     def drop_cohort(self, cohort: str):
         """Drop a specific cohort table."""
 
-    @abstractmethod
-    def drop_table(self, name: str):
-        """Drop a specific temporary table."""
+    @property
+    def tmp_dir(self) -> Path:
+        """Folder of the files that are not exported."""
+        return self.directory / "data" / ".tmp"
+
+    def drop(self, name: str):
+        """Drop the temporary data of the task with this temporary name,
+        which is its file."""
+        table_name = name[4:-(len(UUID) + 1)]
+        (self.tmp_dir / f"{table_name}.csv.gz").unlink(missing_ok=True)
+        self.created_tables.discard(name)
 
     def cleanup(self):
-        """Drop all remaining temporary tables and cohorts."""
-        for table in list(self.created_tables):
-            self.drop_table(table)
+        """Drop all remaining temporary data and cohorts, and the folder of
+        the files that are not exported."""
+        for name in list(self.created_tables):
+            self.drop(name)
         self.drop_cohorts()
+
+        try:
+            self.tmp_dir.rmdir()
+        except OSError:
+            pass
 
     def drop_cohorts(self):
         """Drop all remaining cohort tables."""
@@ -346,26 +360,31 @@ class TempTableStrategy(ExecutionStrategy):
             dest_table.create(session.bind)
 
             # Fallback to .tmp dir if export_to is not specified
-            target_dir = export_to or (self.directory / "data" / ".tmp")
+            target_dir = export_to or self.tmp_dir
             target_dir.mkdir(parents=True, exist_ok=True)
             export_path = target_dir / f"{task.table}.csv.gz"
 
-            # Write to CSV and inserting simultaneously
-            self.csv_hashes[task.full_name] = DataExporter.stream_to_csv(
-                session,
-                query,
-                export_path,
-                table_name=task.table,
-                insert_to=dest_table,
-                chunk_size=task.chunk_size,
-                abort=self.abort
-            )
+            # Write to CSV and inserting simultaneously, deleting the file if
+            # it is not complete
+            try:
+                self.csv_hashes[task.full_name] = DataExporter.stream_to_csv(
+                    session,
+                    query,
+                    export_path,
+                    table_name=task.table,
+                    insert_to=dest_table,
+                    chunk_size=task.chunk_size,
+                    abort=self.abort
+                )
+            except BaseException:
+                export_path.unlink(missing_ok=True)
+                raise
+            if self.abort.is_set():
+                export_path.unlink(missing_ok=True)
 
-    def drop_table(self, name: str):
-        """Drop a specific temporary table."""
-        if name not in self.created_tables:
-            return
-
+    def drop(self, name: str):
+        """Drop a temporary table, and its file."""
+        super().drop(name)
         with self.session() as session:
             try:
                 sa_table = Table(name, MetaData())
@@ -373,8 +392,6 @@ class TempTableStrategy(ExecutionStrategy):
                 session.commit()
             except SQLAlchemyError as err:
                 logger.warning("Table '%s': Could not drop (%s).", name, err)
-            finally:
-                self.created_tables.remove(name)
 
     # pylint: disable=too-many-locals
     def get_cohort(self, cohort: str) -> str:
@@ -610,42 +627,34 @@ class StreamStrategy(ExecutionStrategy):
 
     def execute(self, task: ExtractMeta, export_to: Optional[Path] = None):
         """Execute extraction by streaming and filtering in memory."""
-        target_dir = export_to or (self.directory / "data" / ".tmp")
+        target_dir = export_to or self.tmp_dir
         target_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info("Table '%s': Extracting.", task.full_name)
+
+        # The file is known before it is written, to delete it if it is not
+        # complete
+        if export_to is None:
+            self.created_tables.add(task.temp_name)
 
         with self.session() as session:
             # Export to a CSV file
             query = self.build_queries(task)
             export_path = target_dir / f"{task.table}.csv.gz"
-            self.csv_hashes[task.full_name] = DataExporter.stream_to_csv(
-                session,
-                query,
-                export_path,
-                table_name=task.table,
-                chunk_size=task.chunk_size,
-                abort=self.abort
-            )
-
-        if export_to is None:
-            self.created_tables.add(task.temp_name)
-
-    def drop_table(self, name: str):
-        """Clean up temporary files."""
-        if name not in self.created_tables:
-            return
-
-        table_name = name[4:-(len(UUID) + 1)]
-        path = self.directory / "data" / ".tmp" / f"{table_name}.csv.gz"
-        if path.exists():
-            path.unlink()
-        self.created_tables.remove(name)
-
-        # Try to remove the temp directory itself if empty
-        temp_dir = self.directory / "data" / ".tmp"
-        if temp_dir.exists() and not any(temp_dir.iterdir()):
-            temp_dir.rmdir()
+            try:
+                self.csv_hashes[task.full_name] = DataExporter.stream_to_csv(
+                    session,
+                    query,
+                    export_path,
+                    table_name=task.table,
+                    chunk_size=task.chunk_size,
+                    abort=self.abort
+                )
+            except BaseException:
+                export_path.unlink(missing_ok=True)
+                raise
+            if self.abort.is_set():
+                export_path.unlink(missing_ok=True)
 
     def drop_cohort(self, cohort: str):
         """Clear cohort from memory (no DDL in stream mode)."""
@@ -877,7 +886,7 @@ class ParallelExecutor:
     def _on_task_complete(self, node: Union[ExtractMeta, Unresolved]):
         """Perform cleanup for dependencies no longer needed."""
         to_drop_cohorts = []
-        to_drop_tables = []
+        to_drop = []
 
         with self.lock:
             # Cohorts currently have no prerequisites in the graph
@@ -890,13 +899,13 @@ class ParallelExecutor:
                     if dep.full_name in self.strategy.cohorts:
                         to_drop_cohorts.append(dep.full_name)
                     elif dep in self.live_tasks:
-                        to_drop_tables.append(dep.temp_name)
+                        to_drop.append(dep.temp_name)
                         self.live_tasks.remove(dep)
 
             # Check if THIS node itself is no longer needed by anyone else
             if self.ref_counts.get(node, 0) == 0:
                 if isinstance(node, ExtractMeta):
-                    to_drop_tables.append(node.temp_name)
+                    to_drop.append(node.temp_name)
                     self.live_tasks.discard(node)
                 elif node.full_name in self.strategy.cohorts:
                     to_drop_cohorts.append(node.full_name)
@@ -904,5 +913,5 @@ class ParallelExecutor:
         # Execute drops outside of the lock
         for dep in to_drop_cohorts:
             self.strategy.drop_cohort(dep)
-        for table in to_drop_tables:
-            self.strategy.drop_table(table)
+        for name in to_drop:
+            self.strategy.drop(name)
