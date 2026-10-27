@@ -17,6 +17,9 @@ def main(args=None):
     parser = get_parser()
     parser.add_argument("--grant", metavar="grant", type=str, nargs='+',
                         help="Grant read permissions to specified users")
+    parser.add_argument("--include", metavar="name", type=str, nargs="+",
+                        help="Build only these tables and scripts, and what "
+                             "they use")
     parser.add_argument("--rebuild-all", action="store_true",
                         help="Run all derive scripts, even if up to date")
     parser.add_argument("--prune", action="store_true",
@@ -27,12 +30,20 @@ def main(args=None):
     # Get absolute of specified path
     directory = Path(args.directory).absolute()
 
-    # Connect to database
+    # Get database parameters
     db_params = DatabaseMeta.load_env(directory)
+
+    # Tables and scripts to build, with what they use
+    database = DatabaseMeta(directory, db_params["database"])
+    include = None
+    if args.include:
+        selected = database.graph.find(args.include)
+        include = database.graph.requirements(selected)
+
+    # Connect to database
     session = Session.create(**db_params)
 
     # Create metadata
-    database = DatabaseMeta(directory, db_params["database"])
     database.create_metadata(session)
     database.load_stale(session)
 
@@ -42,6 +53,8 @@ def main(args=None):
     # Stage and flush to database
     updated = []
     for table in database.graph.tables:
+        if include is not None and table not in include:
+            continue
         if not table.is_updated(session):
             logger.info("Table '%s'.'%s': Already up to date.",
                         table.schema, table.name)
@@ -66,7 +79,8 @@ def main(args=None):
 
     # Run views
     session.close()
-    database.execute_derive(session, force=args.rebuild_all)
+    database.execute_derive(
+        session, force=args.rebuild_all, include=include)
 
     # Objects whose metadata or script was removed
     database.prune(session, drop=args.prune)

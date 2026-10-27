@@ -240,7 +240,8 @@ class DatabaseMeta():
                 if record:
                     session.delete(record)
 
-    def execute_derive(self, session, force=False, record=True, **kwargs):
+    def execute_derive(self, session, force=False, record=True, include=None,
+                       **kwargs):
         """Executes the derive scripts, each one after the scripts that create
         the objects it uses. Only the scripts that changed, or that were not
         built since what they use was rebuilt, are executed.
@@ -254,9 +255,14 @@ class DatabaseMeta():
         :param record: Whether to save the scripts executed to the metadata,
                        which is what tells later runs they are up to date.
         :type record: bool
+
+        :param include: Scripts to execute, if not all of them.
+        :type include: set[data_utils.metadata.script.ScriptMeta]
         """
         for script in self.graph.scripts:
             name = script.full_name
+            if include is not None and script not in include:
+                continue
             saved = script.record(session) if record else None
 
             if not force and saved and saved.checksum_ == script.checksum:
