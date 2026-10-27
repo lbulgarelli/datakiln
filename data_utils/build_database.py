@@ -55,7 +55,13 @@ def main(args=None):
     for table in database.graph.tables:
         if include is not None and table not in include:
             continue
-        if not table.is_updated(session):
+
+        # Rebuilding a table drops the foreign keys of the tables that
+        # reference it, which have to be rebuilt as well to get them back
+        if (
+            not table.is_updated(session)
+            and database.graph.adj[table].isdisjoint(updated)
+        ):
             logger.info("Table '%s'.'%s': Already up to date.",
                         table.schema, table.name)
             continue

@@ -224,9 +224,10 @@ class DatabaseMeta():
                     )
 
     def forget_dependents(self, session, objects):
-        """Deletes the records of the scripts that need any of the objects,
-        which are dropped with them when they are rebuilt, so the next run
-        builds them again.
+        """Deletes the records of the tables and scripts that need any of the
+        objects. Rebuilding an object drops what is built on it, the foreign
+        keys of the tables and the views of the scripts, so the next run has
+        to build them again.
 
         :param session: Database Session.
         :type session: data_utils.metadata.database.Session
@@ -235,10 +236,9 @@ class DatabaseMeta():
         :type objects: list[data_utils.metadata.table.TableMeta]
         """
         for node in self.graph.affected(objects):
-            if isinstance(node, ScriptMeta):
-                record = node.record(session)
-                if record:
-                    session.delete(record)
+            record = node.record(session)
+            if record:
+                session.delete(record)
 
     def execute_derive(self, session, force=False, record=True, include=None,
                        **kwargs):
