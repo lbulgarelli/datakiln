@@ -21,7 +21,8 @@ def main(args=None):
                         help="Build only these tables and scripts, and what "
                              "they use")
     parser.add_argument("--rebuild-all", action="store_true",
-                        help="Run all derive scripts, even if up to date")
+                        help="Rebuild all tables and derive scripts, even if "
+                             "up to date")
     parser.add_argument("--prune", action="store_true",
                         help="Drop the objects removed from the repo")
     args = parser.parse_args(args)
@@ -56,10 +57,12 @@ def main(args=None):
         if include is not None and table not in include:
             continue
 
-        # Rebuilding a table drops the foreign keys of the tables that
-        # reference it, which have to be rebuilt as well to get them back
+        # Skip the tables that did not change, unless all are rebuilt. A table
+        # is also rebuilt if a table it references is, since that drops its
+        # foreign keys
         if (
-            not table.is_updated(session)
+            not args.rebuild_all
+            and not table.is_updated(session)
             and database.graph.adj[table].isdisjoint(updated)
         ):
             logger.info("Table '%s'.'%s': Already up to date.",
