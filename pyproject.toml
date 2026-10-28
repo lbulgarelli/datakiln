@@ -37,6 +37,7 @@ build_metadata = "data_utils.build_metadata:main"
 build_table = "data_utils.build_table:main"
 build_database = "data_utils.build_database:main"
 build_dbms = "data_utils.build_dbms:main"
+show_graph = "data_utils.show_graph:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["data_utils"]
