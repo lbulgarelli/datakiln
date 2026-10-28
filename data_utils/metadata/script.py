@@ -223,13 +223,17 @@ class ScriptMeta:
                 raise ScriptError(self.path, "it needs a non-public schema.")
             self.requires |= {table.db, f"{table.db}.{table.name}"}
 
-        # Calls to functions, which are named without a schema. Built-in
-        # functions are known to sqlglot, so only user functions are unknown.
-        for call in statement.find_all(exp.Anonymous):
-            parent = call.parent
-            if isinstance(parent, exp.Dot) or getattr(parent, "db", ""):
-                raise ScriptError(self.path, FUNCTION_SCHEMA)
-            self.requires.add(call.name)
+        # Calls to functions, which are named without a schema. A user
+        # function can be named like one that sqlglot knows, so those calls
+        # are needed too.
+        for call in statement.find_all(exp.Func):
+            name = call.sql_name().lower()
+            if isinstance(call, exp.Anonymous):
+                parent = call.parent
+                if isinstance(parent, exp.Dot) or getattr(parent, "db", ""):
+                    raise ScriptError(self.path, FUNCTION_SCHEMA)
+                name = call.name
+            self.requires.add(name)
 
     def _body(self, statement: exp.Create):
         """Collect what the body of a statement needs."""
