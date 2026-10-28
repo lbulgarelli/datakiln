@@ -12,7 +12,7 @@ import sqlparse
 from sqlglot import exp
 from sqlalchemy.orm.session import Session as SQLAlchemySession
 from sqlalchemy import (
-    create_engine, select, text, URL, event, Engine
+    create_engine, inspect, select, text, URL, event, Engine
 )
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlalchemy.schema import CreateSchema
@@ -115,33 +115,27 @@ class DatabaseMeta():
         return DatabaseGraph(self.tables, self.scripts)
 
     def grant(self, session, users=None):
-        """Grants read on all objects in database.
+        """Grants read on the objects of the schemas of the tables and scripts,
+        which excludes the stage and the metadata, to the database role, and
+        the role to the users.
 
         :param session: Database Session.
         :type session: data_utils.metadata.database.Session
+
+        :param users: Users to give the role to.
+        :type users: list[str]
         """
-        # Iterates all schemas in database and grant
-        # read permissions to database role
-        session.execute(dedent(f"""
-        DO $do$
-        DECLARE
-        schema TEXT;
-        BEGIN
-        FOR schema IN (
-            SELECT nspname
-            FROM pg_namespace
-            WHERE nspname NOT LIKE 'information_schema%'
-            AND nspname NOT LIKE 'pg_catalog%'
-            AND nspname NOT LIKE 'pg_toast%'
-            AND nspname NOT LIKE 'pg_temp%'
-            AND nspname != 'public'
-        ) LOOP
-            EXECUTE format($$ GRANT USAGE ON SCHEMA %I TO {self.name} $$, schema);
-            EXECUTE format($$ GRANT SELECT ON ALL SEQUENCES IN SCHEMA %I TO {self.name} $$, schema);
-            EXECUTE format($$ GRANT SELECT ON ALL TABLES IN SCHEMA %I TO {self.name} $$, schema);
-        END LOOP;
-        END;
-        $do$;"""), validate=False)  # noqa: E501
+        # The schemas of the repo that were built
+        built = set(inspect(session.connection()).get_schema_names())
+        for schema in sorted((self.graph.schemas & built) - {"public"}):
+            session.execute(
+                f"GRANT USAGE ON SCHEMA {schema} TO {self.name}")
+            session.execute(
+                f"GRANT SELECT ON ALL SEQUENCES IN SCHEMA {schema} "
+                f"TO {self.name}")
+            session.execute(
+                f"GRANT SELECT ON ALL TABLES IN SCHEMA {schema} "
+                f"TO {self.name}")
 
         # Grant permissions to users by proxy of the database role
         if users:
@@ -313,8 +307,7 @@ class DatabaseMeta():
 
         # A schema is only dropped if nothing is left in it, even objects
         # that are not ours, so the database is the one to tell
-        in_repo = {name.partition(".")[0] for name in self.graph.nodes}
-        for schema in sorted(schemas - in_repo):
+        for schema in sorted(schemas - self.graph.schemas):
             for name in (schema, f"_{schema}"):
                 try:
                     with session.begin_nested():

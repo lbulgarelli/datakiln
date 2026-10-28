@@ -216,6 +216,16 @@ class DatabaseGraph(DependencyGraph):
 
         super().__init__(list(created.values()), aliases=overloads)
 
+    @cached_property
+    def schemas(self) -> Set[str]:
+        """Schemas of the tables and scripts, in lower case. A function is in
+        none."""
+        schemas = set()
+        for name in self.nodes:
+            if "(" not in name:
+                schemas.add(name.partition(".")[0])
+        return schemas
+
     @property
     def tables(self) -> List:
         """Tables, ordered so that referenced tables come first."""
