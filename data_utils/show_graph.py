@@ -159,38 +159,6 @@ def mermaid(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
     return "\n".join(lines) + "\n"
 
 
-def dot(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
-    """Graph in the DOT language, which Graphviz draws.
-
-    :param graph: Dependency graph.
-    :type graph: data_utils.metadata.graph.DatabaseGraph
-
-    :param nodes: Nodes shown, in order.
-    :type nodes: list
-
-    :param direction: Direction of the flow, LR or TB.
-    :type direction: str
-
-    :rtype: str
-    """
-    ids = {}
-    lines = ["digraph dependencies {", f"    rankdir={direction};",
-             '    node [style=filled, fontname="Helvetica"];']
-    for node in nodes:
-        ids[node] = f"n{len(ids)}"
-        text = "\\n".join(label(node)).replace('"', '\\"')
-        if isinstance(node, TableMeta):
-            attributes = 'shape=cylinder, fillcolor="#e8f1fb"'
-        else:
-            attributes = 'shape=box, fillcolor="#fdf1dc"'
-        lines.append(f'    {ids[node]} [label="{text}", {attributes}];')
-
-    for required, node in edges(graph, nodes):
-        lines.append(f"    {ids[required]} -> {ids[node]};")
-    lines.append("}")
-    return "\n".join(lines) + "\n"
-
-
 def markdown(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
     """Graph as a Markdown document, which GitLab and GitHub draw when it is
     opened.
@@ -229,10 +197,8 @@ def html(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
     return PAGE.format(graph=text, script=MERMAID_JS)
 
 
-FORMATS = {"mermaid": mermaid, "dot": dot, "markdown": markdown,
-           "html": html}
-EXTENSIONS = {".mmd": "mermaid", ".dot": "dot", ".md": "markdown",
-              ".html": "html"}
+# The writer of each extension of the output file, and Mermaid for the others
+FORMATS = {".md": markdown, ".html": html}
 
 
 def main(args=None):
@@ -241,12 +207,6 @@ def main(args=None):
     parser.add_argument("directory", metavar="directory", type=str,
                         help="Path of the directory with the dataset "
                              "metadata.")
-    parser.add_argument("--format", choices=sorted(FORMATS),
-                        help="Format of the graph: Mermaid, DOT for "
-                             "Graphviz, Markdown, which GitLab draws when "
-                             "it is opened, or HTML, which a browser draws. "
-                             "It is the one of the extension of the output "
-                             "file, and Mermaid by default.")
     parser.add_argument("--direction", choices=["LR", "TB"], default="LR",
                         help="Direction of the flow: left to right, or top "
                              "to bottom.")
@@ -258,7 +218,11 @@ def main(args=None):
                              "the arrows from them")
     parser.add_argument("--output", metavar="file", type=str,
                         help="File to write the graph to, instead of "
-                             "standard output")
+                             "standard output. Its extension tells the "
+                             "format: .md is a Markdown document, which "
+                             "GitLab draws when it is opened, and .html is "
+                             "a web page, which a browser draws. Anything "
+                             "else is Mermaid text.")
     args = parser.parse_args(args)
 
     directory = Path(args.directory).absolute()
@@ -266,9 +230,8 @@ def main(args=None):
     graph = DatabaseMeta(directory, name).graph
 
     nodes = select(graph, args.include, args.schemas)
-    kind = args.format or EXTENSIONS.get(
-        Path(args.output or "").suffix, "mermaid")
-    text = FORMATS[kind](graph, nodes, args.direction)
+    write = FORMATS.get(Path(args.output or "").suffix, mermaid)
+    text = write(graph, nodes, args.direction)
     if args.output:
         Path(args.output).write_text(text, encoding="utf-8")
     else:
