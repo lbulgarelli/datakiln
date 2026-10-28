@@ -68,6 +68,7 @@ def main(args=None):
             logger.info("Table '%s'.'%s': Already up to date.",
                         table.schema, table.name)
             continue
+        table.pull()
         table.create(session)
         table.stage_meta.load(session)
         updated.append(table)

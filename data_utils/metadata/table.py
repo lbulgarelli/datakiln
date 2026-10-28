@@ -780,6 +780,19 @@ class TableMeta(TableBase):
             checksum_=self.artifact["md5"])
         session.merge(artifact)
 
+    def pull(self):
+        """Fetch the data file from the DVC remote, if it is not in the
+        folder of the data files. Local files are not fetched.
+
+        :return: None
+        """
+        repo = self.artifact["repo"]
+        path = Path(repo.root_dir) / self.artifact["name"]
+        stats = repo.pull(targets=[str(path)]).get("stats", {})
+        if stats.get("fetched"):
+            logger.info("Table '%s'.'%s': Pulled file '%s'.",
+                        self.schema, self.name, self.artifact["name"])
+
     def record(self, session):
         """Record of the table in the metadata, if it was built.
 
