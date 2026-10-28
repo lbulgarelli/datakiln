@@ -4,15 +4,17 @@ SQL script metadata.
 import re
 from hashlib import md5
 from pathlib import Path
-from typing import List, Set
+from typing import List, Set, Type, Union
 
 import sqlglot
 from more_itertools import sliding_window
 from sqlglot import exp
+from sqlglot.dialects.dialect import Dialect
 from sqlglot.errors import ParseError
 from sqlglot.parser import Parser
 from sqlglot.tokens import TokenType
 
+from data_utils.metadata.dialect import ExtendedPostgres
 from data_utils.metadata.table import Script
 
 
@@ -34,7 +36,7 @@ class ScriptMeta:
     # pylint: disable=too-few-public-methods
     """SQL script and the database objects it creates and uses."""
 
-    _functions = {"FUNCTION", "PROCEDURE"}
+    _functions = {"FUNCTION", "PROCEDURE", "AGGREGATE"}
 
     # Statement kinds that create an object other statements can reference
     # (materialized views are parsed as views)
@@ -45,7 +47,8 @@ class ScriptMeta:
     # Tokens after which sqlglot makes the rest of the statement one string
     _commands = {TokenType.COMMAND, TokenType.EXECUTE}
 
-    def __init__(self, path: Path, sql: str, dialect: str = "postgres"):
+    def __init__(self, path: Path, sql: str,
+                 dialect: Union[str, Type[Dialect]] = ExtendedPostgres):
         """
         :param path: Path of the script.
         :type path: Path
@@ -53,8 +56,8 @@ class ScriptMeta:
         :param sql: Content of the script.
         :type sql: str
 
-        :param dialect: SQLGlot dialect of the script.
-        :type dialect: str
+        :param dialect: SQLGlot dialect of the script, by name or class.
+        :type dialect: str | type[sqlglot.dialects.dialect.Dialect]
         """
         self.path = Path(path)
         self.sql = sql
@@ -74,7 +77,8 @@ class ScriptMeta:
 
     @classmethod
     def from_sql(cls, path: Path, directory: Path,
-                 dialect: str = "postgres") -> 'ScriptMeta':
+                 dialect: Union[str, Type[Dialect]] = ExtendedPostgres
+                 ) -> 'ScriptMeta':
         """Load script metadata from a SQL file.
 
         :param path: Path of the script.
@@ -83,8 +87,8 @@ class ScriptMeta:
         :param directory: Directory the script path is relative to.
         :type directory: Path
 
-        :param dialect: SQLGlot dialect of the script.
-        :type dialect: str
+        :param dialect: SQLGlot dialect of the script, by name or class.
+        :type dialect: str | type[sqlglot.dialects.dialect.Dialect]
 
         :return: Script metadata.
         :rtype: ScriptMeta
@@ -227,6 +231,31 @@ class ScriptMeta:
                 raise ScriptError(self.path, FUNCTION_SCHEMA)
             self.requires.add(call.name)
 
+    def _body(self, statement: exp.Create):
+        """Collect what the body of a statement needs."""
+        body = statement.args.get("expression")
+
+        # The body of a function is quoted text ($$...$$ or a string
+        # literal), which sqlglot does not parse, so it is read by its
+        # tokens.
+        if isinstance(body, (exp.Heredoc, exp.Literal)):
+            self.requires |= self._body_names(body.name)
+
+        # A list of options in place of a body (`name = value`, as an
+        # aggregate has), whose values name the functions and the types that
+        # the object needs.
+        elif isinstance(body, exp.Tuple):
+            for option in body.find_all(exp.EQ):
+                for name in option.expression.find_all(exp.Column):
+                    self.requires.add(name.sql(self.dialect))
+
+        elif statement.kind in self._functions:
+            raise ScriptError(self.path, "it has unsupported syntax.")
+
+        # Anything else is a tree, which is walked.
+        else:
+            self._references(statement)
+
     def _inspect(self, statement: exp.Expression):
         """Collect the objects created and referenced by a statement."""
         # Dropping an object does not require it to exist
@@ -272,13 +301,4 @@ class ScriptMeta:
             if isinstance(kind, exp.Dot):
                 self.requires.add(f"{kind.this.name}.{kind.expression.name}")
 
-        # The body of a function is quoted text ($$...$$ or a string literal),
-        # which sqlglot does not parse, so it is read by its tokens. Anything
-        # else is a tree, which is walked.
-        body = statement.args.get("expression")
-        if isinstance(body, (exp.Heredoc, exp.Literal)):
-            self.requires |= self._body_names(body.name)
-        elif statement.kind in self._functions:
-            raise ScriptError(self.path, "it has unsupported syntax.")
-        else:
-            self._references(statement)
+        self._body(statement)
