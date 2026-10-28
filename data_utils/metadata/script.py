@@ -58,7 +58,7 @@ class ScriptMeta:
         """
         self.path = Path(path)
         self.sql = sql
-        self.checksum = md5(sql.encode()).hexdigest()
+        self.checksum = md5(sql.encode()).hexdigest()  # noqa: DUO130
         self.dialect = dialect
         self.full_name = ""
         self.drop = ""
