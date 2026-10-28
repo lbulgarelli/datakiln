@@ -10,7 +10,7 @@ import sqlglot
 from more_itertools import sliding_window
 from sqlglot import exp
 from sqlglot.dialects.dialect import Dialect
-from sqlglot.errors import ParseError
+from sqlglot.errors import ParseError, SqlglotError
 from sqlglot.parser import Parser
 from sqlglot.tokens import TokenType
 
@@ -234,6 +234,23 @@ class ScriptMeta:
                     raise ScriptError(self.path, FUNCTION_SCHEMA)
                 name = call.name
             self.requires.add(name)
+
+        # A string can hold a query that the object runs, as the ones a
+        # crosstab takes, which is only text to sqlglot
+        for text in statement.find_all(exp.Heredoc, exp.RawString,
+                                       exp.Literal):
+            if not isinstance(text, exp.Literal) or text.is_string:
+                self._query(text.name)
+
+    def _query(self, text: str):
+        """Collect what a string needs, if it is a query."""
+        try:
+            queries = sqlglot.parse(text, read=self.dialect)
+        except SqlglotError:
+            return
+        for query in queries:
+            if isinstance(query, exp.Query):
+                self._references(query)
 
     def _body(self, statement: exp.Create):
         """Collect what the body of a statement needs."""
