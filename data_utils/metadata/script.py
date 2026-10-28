@@ -12,7 +12,7 @@ from sqlglot import exp
 from sqlglot.dialects.dialect import Dialect
 from sqlglot.errors import ParseError, SqlglotError
 from sqlglot.parser import Parser
-from sqlglot.tokens import TokenType
+from sqlglot.tokens import Token, TokenType
 
 from data_utils.metadata.dialect import ExtendedPostgres
 from data_utils.metadata.table import Script
@@ -120,26 +120,38 @@ class ScriptMeta:
 
     def _body_names(self, text: str) -> Set[str]:
         """Returns the objects used in the body of a function: schema.name
-        pairs and the names of called functions.
+        pairs and the names of called functions, and what the strings in it
+        need.
 
-        Comments and string literals are not tokens of names, so they are
-        skipped. Built-in functions and words that look like calls, such as
-        the statements of a procedural language, are returned too and match
-        no object.
+        Comments are not tokens, so they are skipped. Built-in functions and
+        words that look like calls, such as the statements of a procedural
+        language, are returned too and match no object.
         """
         names = set()
-        tokens = sqlglot.tokenize(text, read=self.dialect)
+
+        # A token is read with its neighbors, so the first and the last, as
+        # a string that is all the text, have a stand-in for each
+        stop = Token(TokenType.SEMICOLON, ";")
+        tokens = [stop, *sqlglot.tokenize(text, read=self.dialect), stop]
 
         for left, center, right in sliding_window(tokens, 3):
             match (left.token_type, center.token_type, right.token_type):
-                # A dot before the name of a call means it names a schema
+                # `s.f(`: a call that names a schema, which is not allowed
                 case (TokenType.DOT, TokenType.VAR, TokenType.L_PAREN):
                     raise ScriptError(self.path, FUNCTION_SCHEMA)
+                # `f(`: a call, which is named by the token before the
+                # parenthesis
                 case (TokenType.VAR, TokenType.L_PAREN, _):
                     names.add(left.text)
-                # What follows CALL, DECLARE... or EXECUTE is one string token
+                # `EXECUTE '...'`: what follows CALL, DECLARE... or EXECUTE is
+                # one string token, whose text is code to read in turn
                 case (cmd, TokenType.STRING, _) if cmd in self._commands:
                     names |= self._body_names(center.text)
+                # Any other string, such as a query given to a function, which
+                # is either SQL or only text
+                case (_, TokenType.STRING, _):
+                    names |= self._text(center.text)
+                # `s.t`: an object of a schema
                 case (l, TokenType.DOT, r) if {l, r} <= Parser.ID_VAR_TOKENS:
                     names.add(f"{left.text}.{right.text}")
         return names
@@ -210,8 +222,9 @@ class ScriptMeta:
         self.full_name = f"{table.db}.{table.name}"
         self.requires.add(table.db)
 
-    def _references(self, statement: exp.Create):
-        """Collect the tables and functions referenced by a statement."""
+    def _references(self, statement: exp.Expression) -> Set[str]:
+        """Returns the tables and functions referenced by a statement."""
+        names = set()
         ctes = {cte.alias for cte in statement.find_all(exp.CTE)}
         for table in statement.find_all(exp.Table):
             # A function called in FROM has no name, and a name without a
@@ -221,7 +234,7 @@ class ScriptMeta:
 
             if table.db in ("", PUBLIC):
                 raise ScriptError(self.path, "it needs a non-public schema.")
-            self.requires |= {table.db, f"{table.db}.{table.name}"}
+            names |= {table.db, f"{table.db}.{table.name}"}
 
         # Calls to functions, which are named without a schema. A user
         # function can be named like one that sqlglot knows, so those calls
@@ -233,24 +246,42 @@ class ScriptMeta:
                 if isinstance(parent, exp.Dot) or getattr(parent, "db", ""):
                     raise ScriptError(self.path, FUNCTION_SCHEMA)
                 name = call.name
-            self.requires.add(name)
+            names.add(name)
 
         # A string can hold a query that the object runs, as the ones a
         # crosstab takes, which is only text to sqlglot
         for text in statement.find_all(exp.Heredoc, exp.RawString,
                                        exp.Literal):
             if not isinstance(text, exp.Literal) or text.is_string:
-                self._query(text.name)
+                names |= self._text(text.name)
+        return names
 
-    def _query(self, text: str):
-        """Collect what a string needs, if it is a query."""
+    def _text(self, text: str) -> Set[str]:
+        """Returns what text that holds code needs: a query that runs, or
+        something that is only code to read. It is read as SQL if it parses
+        as a query, and by its tokens if not, with the same rules as the code
+        of the script.
+        """
+        names = set()
         try:
-            queries = sqlglot.parse(text, read=self.dialect)
+            for statement in sqlglot.parse(text, read=self.dialect):
+                # An empty statement is None
+                if statement is None:
+                    continue
+                if not isinstance(statement, (exp.Query, exp.DML)):
+                    break
+                names |= self._references(statement)
+            else:
+                return names
         except SqlglotError:
-            return
-        for query in queries:
-            if isinstance(query, exp.Query):
-                self._references(query)
+            pass
+
+        # Text that cannot be tokenized, such as a word with a quote in it,
+        # is not code
+        try:
+            return self._body_names(text)
+        except SqlglotError:
+            return set()
 
     def _body(self, statement: exp.Create):
         """Collect what the body of a statement needs."""
@@ -275,7 +306,7 @@ class ScriptMeta:
 
         # Anything else is a tree, which is walked.
         else:
-            self._references(statement)
+            self.requires |= self._references(statement)
 
     def _inspect(self, statement: exp.Expression):
         """Collect the objects created and referenced by a statement."""
