@@ -15,7 +15,11 @@ from data_utils.metadata.table import TableMeta
 TABLE_STYLE = "fill:#e8f1fb,stroke:#4a78b5,color:#1f3b5c"
 SCRIPT_STYLE = "fill:#fdf1dc,stroke:#c98a2b,color:#5c3d0e"
 
-MERMAID_JS = "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"
+# Without a layout, Mermaid draws stepped arrows, and arrows that go the same
+# way run along each other. The dagre layout draws a curve for each.
+HEADER = "---\nconfig:\n  layout: dagre\n---\n"
+
+MERMAID_JS ="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"
 PAGE = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -138,7 +142,7 @@ def mermaid(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
     :rtype: str
     """
     ids = {}
-    lines = [f"flowchart {direction}"]
+    lines = [HEADER + f"flowchart {direction}"]
     for node in nodes:
         ids[node] = f"n{len(ids)}"
         text = "<br/>".join(label(node)).replace('"', "#quot;")
