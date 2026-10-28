@@ -10,7 +10,6 @@ from functools import cached_property
 import sqlglot
 import sqlparse
 from sqlglot import exp
-from dvc.api import DVCFileSystem
 from sqlalchemy.orm.session import Session as SQLAlchemySession
 from sqlalchemy import (
     create_engine, select, text, URL, event, Engine
@@ -22,6 +21,7 @@ from sqlalchemy_utils import create_database, database_exists
 
 from data_utils.metadata.table import TableMeta, Object, Script, Base
 from data_utils.metadata.dialect import DIALECT_MAP
+from data_utils.metadata.files import DataFiles
 from data_utils.metadata.graph import DatabaseGraph
 from data_utils.metadata.migrations import upgrade
 from data_utils.metadata.script import ScriptMeta
@@ -80,12 +80,11 @@ class DatabaseMeta():
         :return: Table metadata.
         :rtype: list[data_utils.metadata.table.TableMeta]
         """
-        # Load DVC repository
-        data_repo = DVCFileSystem(self.directory / "data")
+        data_files = DataFiles(self.directory / "data")
 
         tables = []
         for path in self._files("metadata", "*.json"):
-            tables.append(TableMeta.from_json(path, data_repo))
+            tables.append(TableMeta.from_json(path, data_files))
 
         return tables
 

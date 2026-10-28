@@ -841,16 +841,17 @@ class TableMeta(TableBase):
         return list(ordered)
 
     @classmethod
-    def from_json(cls, meta_path, data_repo):
+    def from_json(cls, meta_path, data_files):
         """Load metadata.
 
         :param meta_path: Path to the metadata
         :type meta_path: str
 
-        :param conn: SQLAlchemy connection or session.
-        :type conn: sqlalchemy.Engine
+        :param data_files: Data files of the tables.
+        :type data_files: data_utils.metadata.files.DataFiles
 
-        :return: None
+        :return: Table metadata.
+        :rtype: TableMeta
         """
         # Load json
         with open(meta_path, "rb") as file:
@@ -863,22 +864,7 @@ class TableMeta(TableBase):
         meta_name = re.sub(r"^\d\d-", "", meta_path.stem)
 
         # Determine path to data file(s)
-        for artifact in data_repo.listdir(".", dvc_only=True):
-            artifact_path = Path(artifact["name"])
-            suffix = "".join(artifact_path.suffixes)
-
-            # Get name of artifact without suffixes
-            if len(suffix) > 0:
-                artifact_name = str(artifact_path.name)[:-len(suffix)]
-            else:
-                artifact_name = artifact_path.name
-
-            # Match names
-            if artifact_name.lower() == meta_name:
-                break
-        else:
-            raise FileNotFoundError(
-                f"No files found for metadata: '{meta_name}'")
+        artifact = data_files.find(meta_name)
 
         return TableMeta(
             artifact=artifact, checksum=meta_hash.hexdigest(),
