@@ -2,6 +2,7 @@
 Shows the dependency graph of the tables and derive scripts.
 """
 from argparse import ArgumentParser
+from html import escape
 from operator import attrgetter
 from pathlib import Path
 from typing import Iterable, List
@@ -13,6 +14,23 @@ from data_utils.metadata.table import TableMeta
 
 TABLE_STYLE = "fill:#e8f1fb,stroke:#4a78b5,color:#1f3b5c"
 SCRIPT_STYLE = "fill:#fdf1dc,stroke:#c98a2b,color:#5c3d0e"
+
+MERMAID_JS = "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"
+PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dependency graph</title>
+<style>body {{ font-family: sans-serif; margin: 24px; }}</style>
+</head>
+<body>
+<pre class="mermaid">
+{graph}</pre>
+<script src="{script}"></script>
+<script>mermaid.initialize({{ startOnLoad: true }});</script>
+</body>
+</html>
+"""
 
 
 def is_schema(node) -> bool:
@@ -173,7 +191,48 @@ def dot(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
     return "\n".join(lines) + "\n"
 
 
-FORMATS = {"mermaid": mermaid, "dot": dot}
+def markdown(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
+    """Graph as a Markdown document, which GitLab and GitHub draw when it is
+    opened.
+
+    :param graph: Dependency graph.
+    :type graph: data_utils.metadata.graph.DatabaseGraph
+
+    :param nodes: Nodes shown, in order.
+    :type nodes: list
+
+    :param direction: Direction of the flow, LR or TB.
+    :type direction: str
+
+    :rtype: str
+    """
+    text = mermaid(graph, nodes, direction)
+    return f"# Dependency graph\n\n```mermaid\n{text}```\n"
+
+
+def html(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
+    """Graph as a web page, which any browser draws. The page loads Mermaid
+    from the internet.
+
+    :param graph: Dependency graph.
+    :type graph: data_utils.metadata.graph.DatabaseGraph
+
+    :param nodes: Nodes shown, in order.
+    :type nodes: list
+
+    :param direction: Direction of the flow, LR or TB.
+    :type direction: str
+
+    :rtype: str
+    """
+    text = escape(mermaid(graph, nodes, direction), quote=False)
+    return PAGE.format(graph=text, script=MERMAID_JS)
+
+
+FORMATS = {"mermaid": mermaid, "dot": dot, "markdown": markdown,
+           "html": html}
+EXTENSIONS = {".mmd": "mermaid", ".dot": "dot", ".md": "markdown",
+              ".html": "html"}
 
 
 def main(args=None):
@@ -183,9 +242,11 @@ def main(args=None):
                         help="Path of the directory with the dataset "
                              "metadata.")
     parser.add_argument("--format", choices=sorted(FORMATS),
-                        default="mermaid",
-                        help="Format of the graph: Mermaid, which GitLab "
-                             "draws in Markdown, or DOT, for Graphviz.")
+                        help="Format of the graph: Mermaid, DOT for "
+                             "Graphviz, Markdown, which GitLab draws when "
+                             "it is opened, or HTML, which a browser draws. "
+                             "It is the one of the extension of the output "
+                             "file, and Mermaid by default.")
     parser.add_argument("--direction", choices=["LR", "TB"], default="LR",
                         help="Direction of the flow: left to right, or top "
                              "to bottom.")
@@ -205,7 +266,9 @@ def main(args=None):
     graph = DatabaseMeta(directory, name).graph
 
     nodes = select(graph, args.include, args.schemas)
-    text = FORMATS[args.format](graph, nodes, args.direction)
+    kind = args.format or EXTENSIONS.get(
+        Path(args.output or "").suffix, "mermaid")
+    text = FORMATS[kind](graph, nodes, args.direction)
     if args.output:
         Path(args.output).write_text(text, encoding="utf-8")
     else:
