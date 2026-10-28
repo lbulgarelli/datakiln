@@ -62,7 +62,7 @@ def main(args=None):
         # foreign keys
         if (
             not args.rebuild_all
-            and not table.is_updated(session)
+            and not table.needs_update(session)
             and database.graph.adj[table].isdisjoint(updated)
         ):
             logger.info("Table '%s'.'%s': Already up to date.",

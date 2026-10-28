@@ -790,10 +790,14 @@ class TableMeta(TableBase):
         """
         return session.get(Metadata, self.full_name)
 
-    def is_updated(self, session):
-        """
+    def needs_update(self, session):
+        """Whether the table was not built, or its metadata or file changed
+        since it was.
+
         :param session: Database Session.
         :type session: data_utils.metadata.database.Session
+
+        :rtype: bool
         """
         metadata = self.record(session)
 
