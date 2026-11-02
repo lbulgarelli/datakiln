@@ -170,7 +170,7 @@ class TableBase():
         """
         self.name = name
         self.schema = schema
-        self.columns = []
+        self._columns = {}
         self.encoding = encoding
         self.delimiter = delimiter
         self.na_values = set(na_values or []) | STR_NA_VALUES
@@ -179,7 +179,16 @@ class TableBase():
 
         # Instantiate metadata object for all columns
         for column in columns:
-            self.columns.append(ColumnMeta(**column))
+            meta = ColumnMeta(**column)
+            self._columns[meta.name] = meta
+
+    @property
+    def columns(self):
+        """Metadata for the columns, in order.
+
+        :rtype: list[ColumnMeta]
+        """
+        return list(self._columns.values())
 
     def create(self, session):
         """Create statement.
@@ -367,11 +376,11 @@ class TableMeta(TableBase):
 
         # Instantiate metadata object for all foreign keys
         for fk in constraints.get("foreign_keys", []):
+            # The types follow the columns of the key, which are compared
+            # with the columns it references in the same order
             dtypes = []
-            for column in self.columns:
-                if column.name not in fk["columns"]:
-                    continue
-                dtypes.append(column.dtype)
+            for name in fk["columns"]:
+                dtypes.append(self._columns[name].dtype)
             fk_meta = ForeignKeyMeta(table=self, dtypes=dtypes, **fk)
             self.foreign_keys.append(fk_meta)
 
@@ -381,7 +390,8 @@ class TableMeta(TableBase):
             unpivot_meta = UnpivotMeta(**upv)
             self.unpivot_meta.append(unpivot_meta)
             for t_vals in unpivot_meta.target_values:
-                self.columns.extend(t_vals.columns)
+                for column in t_vals.columns:
+                    self._columns[column.name] = column
 
     @property
     def full_name(self):
