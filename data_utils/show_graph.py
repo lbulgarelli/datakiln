@@ -7,6 +7,8 @@ from operator import attrgetter
 from pathlib import Path
 from typing import Iterable, List
 
+import networkx as nx
+
 from data_utils.metadata.database import DatabaseMeta
 from data_utils.metadata.graph import DatabaseGraph
 from data_utils.metadata.table import TableMeta
@@ -70,6 +72,10 @@ def edges(graph: DatabaseGraph, nodes: Iterable) -> List[tuple]:
     """Pairs of two tables or two scripts where the second one needs the
     first. There are none between a table and a script.
 
+    An arrow is left out if the nodes are also linked through other nodes. If
+    c needs b and b needs a, then c needs a through b, so the pairs are (a, b)
+    and (b, c) but not (a, c).
+
     :param graph: Dependency graph.
     :type graph: data_utils.metadata.graph.DatabaseGraph
 
@@ -79,14 +85,19 @@ def edges(graph: DatabaseGraph, nodes: Iterable) -> List[tuple]:
     :rtype: list[tuple]
     """
     candidates = set(nodes)
-    pairs = []
-    for node in sorted(candidates, key=attrgetter("full_name")):
-        required_nodes = graph.dependencies(node)
-        for required in sorted(required_nodes, key=attrgetter("full_name")):
+    shown = nx.DiGraph()
+    for node in candidates:
+        for required in graph.dependencies(node):
             if required in candidates and (
                 isinstance(required, TableMeta) == isinstance(node, TableMeta)
             ):
-                pairs.append((required, node))
+                shown.add_edge(required, node)
+
+    # Leave out the arrows already given by a longer path, as (a, c) is by
+    # (a, b) and (b, c). Only the nodes that are shown are in the graph, so
+    # if b is not shown, (a, c) stays
+    pairs = list(nx.transitive_reduction(shown).edges)
+    pairs.sort(key=lambda pair: (pair[1].full_name, pair[0].full_name))
     return pairs
 
 
@@ -233,6 +244,7 @@ def main(args=None):
     directory = Path(args.directory).absolute()
     name = DatabaseMeta.load_env(directory, required=False)["database"]
     graph = DatabaseMeta(directory, name).graph
+    graph.sort()
 
     nodes = select(graph, args.include, args.schemas)
     write = FORMATS.get(Path(args.output or "").suffix, mermaid)
