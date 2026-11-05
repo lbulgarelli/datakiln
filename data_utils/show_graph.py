@@ -81,7 +81,8 @@ def edges(graph: DatabaseGraph, nodes: Iterable) -> List[tuple]:
     candidates = set(nodes)
     pairs = []
     for node in sorted(candidates, key=attrgetter("full_name")):
-        for required in sorted(graph.adj[node], key=attrgetter("full_name")):
+        required_nodes = graph.dependencies(node)
+        for required in sorted(required_nodes, key=attrgetter("full_name")):
             if required in candidates and (
                 isinstance(required, TableMeta) == isinstance(node, TableMeta)
             ):

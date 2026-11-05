@@ -63,7 +63,7 @@ def main(args=None):
         if (
             not args.rebuild_all
             and not table.needs_update(session)
-            and database.graph.adj[table].isdisjoint(updated)
+            and database.graph.dependencies(table).isdisjoint(updated)
         ):
             logger.info("Table '%s'.'%s': Already up to date.",
                         table.schema, table.name)

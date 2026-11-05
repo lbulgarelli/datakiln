@@ -794,8 +794,7 @@ class ParallelExecutor:
         self.lock = RLock()
 
         # Tracking dependencies
-        self.ref_counts = graph.dependents.count()
-        self.dependents = graph.dependents.as_list()
+        self.ref_counts = dict(graph.digraph.out_degree())
 
         # graphlib topological sorter for parallel orchestration
         self.ts = graph.topological_sorter
@@ -890,7 +889,7 @@ class ParallelExecutor:
 
         with self.lock:
             # Cohorts currently have no prerequisites in the graph
-            for dep in self.graph.adj.get(node, ()):
+            for dep in self.graph.dependencies(node):
                 # Decrement ref counts of dependencies used by THIS node
                 self.ref_counts[dep] -= 1
 

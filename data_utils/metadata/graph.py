@@ -3,30 +3,13 @@ Dependency graphs for metadata objects.
 """
 from dataclasses import dataclass
 from functools import cached_property
-from operator import attrgetter
 from typing import Dict, Iterable, List, Optional, Set
-from graphlib import TopologicalSorter, CycleError
+from graphlib import TopologicalSorter
+
+import networkx as nx
 
 from data_utils.metadata.script import ScriptMeta, ScriptError
 from data_utils.metadata.table import TableMeta
-
-
-class DependentsMap(dict):
-    """Successor map from adjacency map."""
-
-    def __init__(self, adj: Dict[object, Set]):
-        super().__init__()
-        for node, predecessors in adj.items():
-            for pred in predecessors:
-                self.setdefault(pred, set()).add(node)
-
-    def count(self) -> Dict[object, int]:
-        """Returns the reference counts for each node."""
-        return {node: len(deps) for node, deps in self.items()}
-
-    def as_list(self) -> Dict[object, List]:
-        """Returns the dependents map with sets converted to lists."""
-        return {node: list(deps) for node, deps in self.items()}
 
 
 @dataclass(frozen=True)
@@ -74,50 +57,63 @@ class DependencyGraph:
 
         self.unresolved: Set[Unresolved] = set()
 
-        self.adj: Dict[object, Set] = {}
+        # An arrow goes from what is needed to what needs it
+        self.digraph = nx.DiGraph()
+        self.digraph.add_nodes_from(self.nodes.values())
         for node in self.nodes.values():
-            self.adj[node] = set()
             for required in node.requires:
                 if required in self.nodes:
-                    self.adj[node].add(self.nodes[required])
+                    self.digraph.add_edge(self.nodes[required], node)
                 elif required in aliases:
-                    self.adj[node] |= aliases[required] - {node}
+                    for other in aliases[required] - {node}:
+                        self.digraph.add_edge(other, node)
                 elif keep_unresolved:
                     unresolved = Unresolved(required)
                     self.unresolved.add(unresolved)
-                    self.adj[node].add(unresolved)
+                    self.digraph.add_edge(unresolved, node)
 
-    @property
-    def topological_sorter(self) -> TopologicalSorter:
-        """Returns a prepared TopologicalSorter for the graph.
+    def dependencies(self, node: object) -> Set:
+        """Nodes that a node needs directly.
+
+        :param node: Node of the graph.
+        :type node: object
+
+        :return: The nodes it needs, which include the dependencies that are
+                 not nodes if they are kept.
+        :rtype: set[object]
+        """
+        return set(self.digraph.predecessors(node))
+
+    def _check_acyclic(self):
+        """Checks that no node needs itself, directly or indirectly.
 
         :raises ValueError: If the dependencies contain a cycle.
         """
-        sorter = TopologicalSorter(self.adj)
-        try:
-            sorter.prepare()
-        except CycleError as error:
-            cycle = " -> ".join(map(attrgetter("full_name"), error.args[1]))
-            raise ValueError(f"Circular dependency: {cycle}") from error
+        if nx.is_directed_acyclic_graph(self.digraph):
+            return
+
+        # Read the arrows the other way, from a node to what it needs
+        cycle = nx.find_cycle(self.digraph.reverse(copy=False))
+        path = []
+        for node, _ in cycle:
+            path.append(node.full_name)
+        path.append(path[0])
+        raise ValueError(f"Circular dependency: {' -> '.join(path)}")
+
+    @property
+    def topological_sorter(self) -> TopologicalSorter:
+        """Returns a prepared TopologicalSorter for the graph, which gives the
+        nodes that can run as the ones they need are done.
+
+        :raises ValueError: If the dependencies contain a cycle.
+        """
+        self._check_acyclic()
+
+        sorter = TopologicalSorter()
+        for node in self.digraph:
+            sorter.add(node, *self.digraph.predecessors(node))
+        sorter.prepare()
         return sorter
-
-    @cached_property
-    def dependents(self) -> DependentsMap:
-        """Map each node to the set of nodes that depend on it."""
-        return DependentsMap(self.adj)
-
-    @staticmethod
-    def _reach(nodes: Iterable, edges: Dict[object, Iterable]) -> Set:
-        """Nodes adjacent to the specified nodes by the edges, directly or
-        indirectly."""
-        reached: Set = set()
-        queue = list(nodes)
-        while queue:
-            for other in edges.get(queue.pop(), ()):
-                if other not in reached:
-                    reached.add(other)
-                    queue.append(other)
-        return reached
 
     def find(self, names: Iterable[str]) -> Set:
         """Nodes by name.
@@ -150,8 +146,10 @@ class DependencyGraph:
         :return: The nodes and what they need.
         :rtype: set[object]
         """
-        nodes = list(nodes)
-        needed = set(nodes) | self._reach(nodes, self.adj)
+        needed = set()
+        for node in nodes:
+            needed.add(node)
+            needed |= nx.ancestors(self.digraph, node)
         return needed - self.unresolved
 
     def affected(self, nodes: Iterable) -> Set:
@@ -164,7 +162,10 @@ class DependencyGraph:
         :return: The nodes that need them.
         :rtype: set[object]
         """
-        return self._reach(nodes, self.dependents)
+        affected = set()
+        for node in nodes:
+            affected |= nx.descendants(self.digraph, node)
+        return affected
 
     def sort(self) -> List:
         """Perform topological sort to determine execution order.
@@ -175,14 +176,12 @@ class DependencyGraph:
 
         :raises ValueError: If the dependencies contain a cycle.
         """
-        sorter = self.topological_sorter
+        self._check_acyclic()
 
         ordered = []
-        while sorter.is_active():
-            for node in sorter.get_ready():
-                if not isinstance(node, Unresolved):
-                    ordered.append(node)
-                sorter.done(node)
+        for node in nx.topological_sort(self.digraph):
+            if not isinstance(node, Unresolved):
+                ordered.append(node)
         return ordered
 
 
