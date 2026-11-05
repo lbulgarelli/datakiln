@@ -18,10 +18,13 @@ TABLE_STYLE = "fill:#e8f1fb,stroke:#4a78b5,color:#1f3b5c"
 SCRIPT_STYLE = "fill:#fdf1dc,stroke:#c98a2b,color:#5c3d0e"
 
 # Without a layout, Mermaid draws stepped arrows, and arrows that go the same
-# way run along each other. The dagre layout draws a curve for each.
-HEADER = "---\nconfig:\n  layout: dagre\n---\n"
+# way run along each other. The ELK layout places the nodes so that fewer
+# arrows cross, and runs the arrows between them at right angles.
+HEADER = "---\nconfig:\n  layout: elk\n---\n"
 
-MERMAID_JS ="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"
+# Mermaid 12.2 draws the ELK layout without a plugin
+MERMAID_JS = (
+    "https://cdn.jsdelivr.net/npm/mermaid@12.2.0/dist/mermaid.min.js")
 PAGE = """<!DOCTYPE html>
 <html lang="en">
 <head>
