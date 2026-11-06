@@ -11,6 +11,7 @@ authors = [
     { name="Lucas Bulgarelli", email="lucas.bulgarelli@hotmail.com" },
 ]
 license = "MIT"
+requires-python = ">=3.10"
 keywords=["database", "utilities"]
 dependencies = [
     "pandas>=2.1.0",
