@@ -112,7 +112,7 @@ the file itself must exist to build the database.
 | `DB_PORT` | `5432` | |
 | `DB_NAME` | `postgres` | Created if it does not exist. |
 | `DB_DIALECT` | `postgresql` | The DBMS of the database to build. |
-| `DB_ISOLATION_LEVEL` | `READ COMMITTED` | |
+| `DB_ISOLATION_LEVEL` | `READ COMMITTED` | Transaction isolation level of the connection. |
 
 ```bash
 DB_USER=analyst
