@@ -50,5 +50,14 @@ docs = [
 [project.scripts]
 datakiln = "datakiln.cli:main"
 
+[tool.hatch.build.targets.sdist]
+include = [
+    "/datakiln",
+    "/docs",
+    "/tests",
+    "/LICENSE",
+    "/README.md",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["datakiln"]
