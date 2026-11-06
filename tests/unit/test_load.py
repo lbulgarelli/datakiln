@@ -41,15 +41,15 @@ class TestBuild():
     def test_load_meta(self, database):  # pylint: disable=redefined-outer-name # noqa: E501
         """Test loading table json"""
         assert (
-            database.tables[0].columns[0].name == "test_id" and
-            database.tables[1].columns[0].name == "foreign_id"
+            database.graph.tables[0].columns[0].name == "test_id" and
+            database.graph.tables[1].columns[0].name == "foreign_id"
         )
 
     def test_create(self, database, test_session):  # pylint: disable=redefined-outer-name # noqa: E501 F811
         """Test create database tables"""
         insp = inspect(test_session.connection())
 
-        for table in database.tables:
+        for table in database.graph.tables:
             table.create(test_session)
             stage_meta = table.stage_meta
             assert (
@@ -59,7 +59,7 @@ class TestBuild():
 
     def test_stage(self, database, test_session):  # pylint: disable=redefined-outer-name # noqa: E501 F811
         """Test loading data to staging"""
-        for table in database.tables:
+        for table in database.graph.tables:
             # Create table
             table.create(test_session)
 
@@ -79,7 +79,7 @@ class TestBuild():
 
     def test_load(self, database, test_session):  # pylint: disable=redefined-outer-name # noqa: E501 F811
         """Test loading to final table"""
-        for table in database.tables:
+        for table in database.graph.tables:
             # Load data
             table.resolve_columns(test_session)
             table.create_uniques(test_session)

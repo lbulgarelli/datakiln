@@ -884,7 +884,7 @@ class TableMeta(TableBase):
                 content += chunk
                 meta_hash.update(chunk)
             meta_json = json.loads(content.decode("utf-8"))
-        meta_name = re.sub(r"^\d\d-", "", meta_path.stem)
+        meta_name = meta_path.stem
 
         # Determine path to data file(s)
         artifact = data_files.find(meta_name)
