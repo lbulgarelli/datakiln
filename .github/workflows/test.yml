@@ -1,16 +1,16 @@
 name: Test
 
-on: [push]
+on:
+  push:
+    branches: ["**"]
+  pull_request:
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.12"]
     services:
       postgres:
-        image: postgres
+        image: postgres:16
         env:
           POSTGRES_PASSWORD: postgres
         options: >-
@@ -20,19 +20,47 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+    env:
+      PGPASSWORD: postgres
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v3
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install .
-    - name: Test
-      env:
-          DB_USER: postgres
-          PGPASSWORD: postgres
-      run: |
-        pytest .
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+      - name: Write the database settings
+        run: |
+          {
+            echo "DB_USER=postgres"
+            echo "DB_HOST=localhost"
+            echo "DB_NAME=postgres"
+          } > .env
+      - name: Test
+        run: >
+          pytest -vv tests/unit
+          --cov=datakiln
+          --cov-report=term-missing
+          --cov-report=html:htmlcov
+      - name: Coverage badge
+        run: |
+          percent=$(coverage report --format=total)
+          if [ "$percent" -ge 90 ]; then color=brightgreen
+          elif [ "$percent" -ge 80 ]; then color=green
+          elif [ "$percent" -ge 70 ]; then color=yellowgreen
+          elif [ "$percent" -ge 60 ]; then color=yellow
+          elif [ "$percent" -ge 50 ]; then color=orange
+          else color=red
+          fi
+          mkdir badge
+          printf '{"schemaVersion": 1, "label": "coverage", "message": "%s%%", "color": "%s"}\n' \
+            "$percent" "$color" > badge/coverage.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: |
+            htmlcov
+            badge

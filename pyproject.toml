@@ -32,6 +32,17 @@ dependencies = [
     "tenacity>=8.0.0"
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest-cov>=5.0",
+    "pytest-xdist>=3.5",
+]
+lint = [
+    "flake8>=7.0",
+    "dlint>=0.14",
+    "pylint>=3.0",
+]
+
 [project.scripts]
 build_metadata = "datakiln.build_metadata:main"
 build_table = "datakiln.build_table:main"
