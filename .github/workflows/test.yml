@@ -64,3 +64,51 @@ jobs:
           path: |
             htmlcov
             badge
+
+  docs:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[docs]"
+      - name: Generate the pages of the API
+        run: >
+          sphinx-apidoc -M -e -o docs/api datakiln
+          "*/migrations/*" "*/test.py"
+      - name: Build the documentation
+        run: sphinx-build -b html docs _site
+      - uses: actions/download-artifact@v8
+        with:
+          name: coverage
+          path: coverage
+      - name: Add the coverage report and badge
+        run: |
+          mkdir _site/coverage
+          cp -r coverage/htmlcov/. _site/coverage/
+          cp coverage/badge/coverage.json _site/coverage.json
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    needs: docs
+    if: >
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+      && github.event.repository.private == false
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

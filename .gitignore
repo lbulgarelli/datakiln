@@ -164,3 +164,7 @@ cython_debug/
 
 # Local notes
 TODO.md
+
+# Generated pages of the API documentation
+docs/api/
+_site/
