@@ -8,8 +8,8 @@ from graphlib import TopologicalSorter
 
 import networkx as nx
 
-from data_utils.metadata.script import ScriptMeta, ScriptError
-from data_utils.metadata.table import TableMeta
+from datakiln.metadata.script import ScriptMeta, ScriptError
+from datakiln.metadata.table import TableMeta
 
 
 @dataclass(frozen=True)
@@ -193,7 +193,7 @@ class DatabaseGraph(DependencyGraph):
     def __init__(self, tables: List, scripts: List[ScriptMeta]):
         """
         :param tables: Table metadata.
-        :type tables: list[data_utils.metadata.table.TableMeta]
+        :type tables: list[datakiln.metadata.table.TableMeta]
 
         :param scripts: Scripts that create objects from the tables.
         :type scripts: list[ScriptMeta]

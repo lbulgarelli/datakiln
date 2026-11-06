@@ -19,10 +19,10 @@ from sqlalchemy import (
     Table, MetaData
 )
 
-from data_utils.metadata.graph import DependencyGraph
+from datakiln.metadata.graph import DependencyGraph
 
 if TYPE_CHECKING:
-    from data_utils.extraction.strategies import ExecutionStrategy
+    from datakiln.extraction.strategies import ExecutionStrategy
 
 
 # Generate a unique run UUID shared across extraction components

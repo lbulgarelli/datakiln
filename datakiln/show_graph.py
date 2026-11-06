@@ -9,9 +9,9 @@ from typing import Iterable, List
 
 import networkx as nx
 
-from data_utils.metadata.database import DatabaseMeta
-from data_utils.metadata.graph import DatabaseGraph
-from data_utils.metadata.table import TableMeta
+from datakiln.metadata.database import DatabaseMeta
+from datakiln.metadata.graph import DatabaseGraph
+from datakiln.metadata.table import TableMeta
 
 
 TABLE_STYLE = "fill:#e8f1fb,stroke:#4a78b5,color:#1f3b5c"
@@ -46,8 +46,8 @@ def is_schema(node) -> bool:
     """Whether the node is a script that creates a schema.
 
     :param node: Table or script.
-    :type node: data_utils.metadata.table.TableMeta |
-                data_utils.metadata.script.ScriptMeta
+    :type node: datakiln.metadata.table.TableMeta |
+                datakiln.metadata.script.ScriptMeta
 
     :rtype: bool
     """
@@ -59,8 +59,8 @@ def label(node) -> List[str]:
     name does not tell it.
 
     :param node: Table or script.
-    :type node: data_utils.metadata.table.TableMeta |
-                data_utils.metadata.script.ScriptMeta
+    :type node: datakiln.metadata.table.TableMeta |
+                datakiln.metadata.script.ScriptMeta
 
     :rtype: list[str]
     """
@@ -80,7 +80,7 @@ def edges(graph: DatabaseGraph, nodes: Iterable) -> List[tuple]:
     and (b, c) but not (a, c).
 
     :param graph: Dependency graph.
-    :type graph: data_utils.metadata.graph.DatabaseGraph
+    :type graph: datakiln.metadata.graph.DatabaseGraph
 
     :param nodes: Nodes that can be shown.
     :type nodes: Iterable
@@ -110,7 +110,7 @@ def select(graph: DatabaseGraph, include: Iterable[str] = None,
     others would only be a row of boxes, and the ones asked for.
 
     :param graph: Dependency graph.
-    :type graph: data_utils.metadata.graph.DatabaseGraph
+    :type graph: datakiln.metadata.graph.DatabaseGraph
 
     :param include: Names of the nodes to show, with the nodes they need. All
                     by default.
@@ -146,7 +146,7 @@ def mermaid(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
     Markdown file.
 
     :param graph: Dependency graph.
-    :type graph: data_utils.metadata.graph.DatabaseGraph
+    :type graph: datakiln.metadata.graph.DatabaseGraph
 
     :param nodes: Nodes shown, in order.
     :type nodes: list
@@ -183,7 +183,7 @@ def markdown(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
     opened.
 
     :param graph: Dependency graph.
-    :type graph: data_utils.metadata.graph.DatabaseGraph
+    :type graph: datakiln.metadata.graph.DatabaseGraph
 
     :param nodes: Nodes shown, in order.
     :type nodes: list
@@ -202,7 +202,7 @@ def html(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
     from the internet.
 
     :param graph: Dependency graph.
-    :type graph: data_utils.metadata.graph.DatabaseGraph
+    :type graph: datakiln.metadata.graph.DatabaseGraph
 
     :param nodes: Nodes shown, in order.
     :type nodes: list

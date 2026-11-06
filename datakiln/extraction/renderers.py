@@ -11,11 +11,11 @@ from sqlalchemy import (
 from sqlalchemy.sql import Select
 from sqlalchemy.sql.elements import ClauseElement
 
-from data_utils.metadata.database import Session
-from data_utils.extraction.models import ExtractMeta
+from datakiln.metadata.database import Session
+from datakiln.extraction.models import ExtractMeta
 
 if TYPE_CHECKING:
-    from data_utils.extraction.strategies import ExecutionStrategy
+    from datakiln.extraction.strategies import ExecutionStrategy
 
 
 class SQLGenerator:

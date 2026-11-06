@@ -3,9 +3,9 @@ requires = ["hatchling >= 1.26"]
 build-backend = "hatchling.build"
 
 [project]
-name = "data-utils"
+name = "datakiln"
 version = "0.2.0"
-description='Data Utilities.'
+description='Build a database from a repository of files.'
 readme = "README.md"
 authors = [
     { name="Lucas Bulgarelli", email="lucas.bulgarelli@hotmail.com" },
@@ -33,12 +33,11 @@ dependencies = [
 ]
 
 [project.scripts]
-spam-cli = "spam:main_cli"
-build_metadata = "data_utils.build_metadata:main"
-build_table = "data_utils.build_table:main"
-build_database = "data_utils.build_database:main"
-build_dbms = "data_utils.build_dbms:main"
-show_graph = "data_utils.show_graph:main"
+build_metadata = "datakiln.build_metadata:main"
+build_table = "datakiln.build_table:main"
+build_database = "datakiln.build_database:main"
+build_dbms = "datakiln.build_dbms:main"
+show_graph = "datakiln.show_graph:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["data_utils"]
+packages = ["datakiln"]

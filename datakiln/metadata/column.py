@@ -71,7 +71,7 @@ class ColumnMeta():
         """Enforce column data type.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :param schema: Table schema.
         :type schema: str
@@ -101,7 +101,7 @@ class ColumnMeta():
         """Add column description as a column comment.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :param schema: Table schema.
         :type schema: str

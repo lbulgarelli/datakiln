@@ -4,7 +4,7 @@ Environment of the migrations, which run on the connection they are given.
 # pylint: disable=no-member
 from alembic import context
 
-from data_utils.metadata.table import Base
+from datakiln.metadata.table import Base
 
 
 context.configure(

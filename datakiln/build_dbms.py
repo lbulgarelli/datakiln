@@ -6,13 +6,13 @@ from argparse import BooleanOptionalAction
 from getpass import getuser
 from pathlib import Path
 
-from data_utils.metadata.database import DatabaseMeta, DRIVER
-from data_utils.build_metadata import get_parser, setup_logging
-from data_utils.extraction.models import ExtractMeta, ExtractGraph
-from data_utils.extraction.strategies import (
+from datakiln.metadata.database import DatabaseMeta, DRIVER
+from datakiln.build_metadata import get_parser, setup_logging
+from datakiln.extraction.models import ExtractMeta, ExtractGraph
+from datakiln.extraction.strategies import (
     StreamStrategy, TempTableStrategy, ParallelExecutor
 )
-from data_utils.extraction.exporters import MetadataExtractor
+from datakiln.extraction.exporters import MetadataExtractor
 
 
 logger = logging.getLogger(__name__)

@@ -19,12 +19,12 @@ from sqlalchemy.schema import CreateSchema
 from decouple import Config, RepositoryEmpty, RepositoryEnv
 from sqlalchemy_utils import create_database, database_exists
 
-from data_utils.metadata.table import TableMeta, Object, Script, Base
-from data_utils.metadata.dialect import DIALECT_MAP
-from data_utils.metadata.files import DataFiles
-from data_utils.metadata.graph import DatabaseGraph
-from data_utils.metadata.migrations import upgrade
-from data_utils.metadata.script import ScriptMeta
+from datakiln.metadata.table import TableMeta, Object, Script, Base
+from datakiln.metadata.dialect import DIALECT_MAP
+from datakiln.metadata.files import DataFiles
+from datakiln.metadata.graph import DatabaseGraph
+from datakiln.metadata.migrations import upgrade
+from datakiln.metadata.script import ScriptMeta
 
 
 DRIVER = {
@@ -78,7 +78,7 @@ class DatabaseMeta():
         """Retrieve database tables, in the order of their files.
 
         :return: Table metadata.
-        :rtype: list[data_utils.metadata.table.TableMeta]
+        :rtype: list[datakiln.metadata.table.TableMeta]
         """
         data_files = DataFiles(self.directory / "data")
 
@@ -93,7 +93,7 @@ class DatabaseMeta():
         """Retrieve the derive scripts.
 
         :return: Script metadata.
-        :rtype: list[data_utils.metadata.script.ScriptMeta]
+        :rtype: list[datakiln.metadata.script.ScriptMeta]
         """
         # The dialect is set in the environment of the database
         dialect = self.load_env(self.directory, required=False)["dialect"]
@@ -110,7 +110,7 @@ class DatabaseMeta():
         which gives them in the order they depend on one another.
 
         :return: Dependency graph.
-        :rtype: data_utils.metadata.graph.DatabaseGraph
+        :rtype: datakiln.metadata.graph.DatabaseGraph
         """
         return DatabaseGraph(self.tables, self.scripts)
 
@@ -120,7 +120,7 @@ class DatabaseMeta():
         the role to the users.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :param users: Users to give the role to.
         :type users: list[str]
@@ -150,7 +150,7 @@ class DatabaseMeta():
         """Create database role.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
         """
         engine = session.get_bind()
         with engine.connect() as conn:
@@ -170,7 +170,7 @@ class DatabaseMeta():
         :type directory: str
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :param ignore: List of files to ignore.
         :type ignore: str
@@ -191,7 +191,7 @@ class DatabaseMeta():
         its metadata or script was removed or ignored.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :raises ValueError: If what is in the repo requires any of them.
         """
@@ -223,10 +223,10 @@ class DatabaseMeta():
         to build them again.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :param objects: Tables or scripts.
-        :type objects: list[data_utils.metadata.table.TableMeta]
+        :type objects: list[datakiln.metadata.table.TableMeta]
         """
         for node in self.graph.affected(objects):
             record = node.record(session)
@@ -240,7 +240,7 @@ class DatabaseMeta():
         built since what they use was rebuilt, are executed.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :param force: Execute all scripts, even if they are up to date.
         :type force: bool
@@ -250,7 +250,7 @@ class DatabaseMeta():
         :type record: bool
 
         :param include: Scripts to execute, if not all of them.
-        :type include: set[data_utils.metadata.script.ScriptMeta]
+        :type include: set[datakiln.metadata.script.ScriptMeta]
         """
         for script in self.graph.scripts:
             name = script.full_name
@@ -280,7 +280,7 @@ class DatabaseMeta():
         are left empty.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :param drop: Whether to drop them. If not, they are only listed.
         :type drop: bool
@@ -321,7 +321,7 @@ class DatabaseMeta():
     def create_metadata(self, session):
         """
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
         """
         engine = session.get_bind()
         with engine.connect() as conn:
@@ -416,7 +416,7 @@ class Session(SQLAlchemySession):
         :type \**kwargs: dict
 
         :return: Database session.
-        :rtype: data_utils.metadata.database.Session
+        :rtype: datakiln.metadata.database.Session
 
         """
         self._buffer = []
@@ -546,7 +546,7 @@ class Session(SQLAlchemySession):
         :type isolation_level: str
 
         :return: Database session.
-        :rtype: data_utils.metadata.database.Session
+        :rtype: datakiln.metadata.database.Session
         """
         url_object = URL.create(
             f"{dialect}+{DRIVER[dialect]}",

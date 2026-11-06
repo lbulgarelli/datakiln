@@ -21,5 +21,5 @@ jobs:
         pip install .
     - name: Analysing the code
       run: |
-        pylint data_utils
-        flake8 data_utils
+        pylint datakiln
+        flake8 datakiln

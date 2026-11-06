@@ -23,11 +23,11 @@ from sqlalchemy.orm import (
     relationship
 )
 
-from data_utils.io import open_excel, NullStripper
-from data_utils.metadata.column import ColumnMeta
-from data_utils.metadata.location import SSHLocation
-from data_utils.metadata.foreign_key import ForeignKeyMeta
-from data_utils.metadata.unpivot import UnpivotMeta
+from datakiln.io import open_excel, NullStripper
+from datakiln.metadata.column import ColumnMeta
+from datakiln.metadata.location import SSHLocation
+from datakiln.metadata.foreign_key import ForeignKeyMeta
+from datakiln.metadata.unpivot import UnpivotMeta
 
 
 logger = logging.getLogger(__name__)
@@ -194,7 +194,7 @@ class TableBase():
         """Create statement.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :return: None
         """
@@ -269,7 +269,7 @@ class StageMeta(TableBase):
         """Create statement.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :return: None
         """
@@ -289,7 +289,7 @@ class StageMeta(TableBase):
         """Stage data.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :return: None
         """
@@ -428,7 +428,7 @@ class TableMeta(TableBase):
         """Create statement.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :return: None
         """
@@ -441,7 +441,7 @@ class TableMeta(TableBase):
         """Unpivot a table.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :return: None
         """
@@ -530,7 +530,7 @@ class TableMeta(TableBase):
         """Resolve NULL values and apply description/comment.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :return: None
         """
@@ -548,7 +548,7 @@ class TableMeta(TableBase):
         """Enforce foreign key constraints.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :return: None
         """
@@ -619,7 +619,7 @@ class TableMeta(TableBase):
         """Load data from stage.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :return: None
         """
@@ -776,7 +776,7 @@ class TableMeta(TableBase):
     def create_metadata(self, session):
         """
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
         """
         # Table metadata
         meta = Metadata(name_=self.full_name, checksum_=self.checksum)
@@ -807,9 +807,9 @@ class TableMeta(TableBase):
         """Record of the table in the metadata, if it was built.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
-        :rtype: data_utils.metadata.table.Metadata
+        :rtype: datakiln.metadata.table.Metadata
         """
         return session.get(Metadata, self.full_name)
 
@@ -818,7 +818,7 @@ class TableMeta(TableBase):
         since it was.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
         :rtype: bool
         """
@@ -871,7 +871,7 @@ class TableMeta(TableBase):
         :type meta_path: str
 
         :param data_files: Data files of the tables.
-        :type data_files: data_utils.metadata.files.DataFiles
+        :type data_files: datakiln.metadata.files.DataFiles
 
         :return: Table metadata.
         :rtype: TableMeta

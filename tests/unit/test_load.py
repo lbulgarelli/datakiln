@@ -10,8 +10,8 @@ import pandas as pd
 from sqlalchemy import inspect
 from dvc.testing.fixtures import make_tmp_dir  # pylint: disable=unused-import # noqa: E501 F401
 
-from data_utils.test import test_session  # pylint: disable=unused-import # noqa: E501 F401
-from data_utils.metadata.database import DatabaseMeta
+from datakiln.test import test_session  # pylint: disable=unused-import # noqa: E501 F401
+from datakiln.metadata.database import DatabaseMeta
 
 
 TEST_DIR = Path("tests").absolute()

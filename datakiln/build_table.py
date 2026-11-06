@@ -3,9 +3,9 @@ Creates table and loads data.
 """
 from pathlib import Path
 
-from data_utils.build_metadata import get_parser, setup_logging
-from data_utils.metadata.database import Session
-from data_utils.metadata.table import TableMeta
+from datakiln.build_metadata import get_parser, setup_logging
+from datakiln.metadata.database import Session
+from datakiln.metadata.table import TableMeta
 
 
 def main(args=None):

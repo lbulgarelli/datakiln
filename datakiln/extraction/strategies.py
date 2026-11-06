@@ -30,13 +30,13 @@ from sqlalchemy.sql import Select
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.selectable import Values
 
-from data_utils.metadata.database import DatabaseMeta, Session
-from data_utils.metadata.graph import Unresolved
-from data_utils.extraction.models import (
+from datakiln.metadata.database import DatabaseMeta, Session
+from datakiln.metadata.graph import Unresolved
+from datakiln.extraction.models import (
     UUID, ExtractMeta, ExtractGraph, FilterConfig
 )
-from data_utils.extraction.renderers import QueryDirector
-from data_utils.extraction.exporters import MetadataExtractor, DataExporter
+from datakiln.extraction.renderers import QueryDirector
+from datakiln.extraction.exporters import MetadataExtractor, DataExporter
 
 logger = logging.getLogger(__name__)
 

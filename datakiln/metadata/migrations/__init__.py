@@ -7,7 +7,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import inspect
 
-from data_utils.metadata.table import Base
+from datakiln.metadata.table import Base
 
 
 # The version of databases built before there were migrations

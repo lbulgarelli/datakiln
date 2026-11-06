@@ -5,7 +5,7 @@ import re
 from textwrap import dedent
 from collections import defaultdict
 
-from data_utils.metadata.column import ColumnMeta
+from datakiln.metadata.column import ColumnMeta
 
 
 class UnpivotColumnMeta(ColumnMeta):

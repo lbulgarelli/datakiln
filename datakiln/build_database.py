@@ -4,8 +4,8 @@ Creates table and loads data.
 import logging
 from pathlib import Path
 
-from data_utils.build_metadata import get_parser, setup_logging
-from data_utils.metadata.database import DatabaseMeta, Session
+from datakiln.build_metadata import get_parser, setup_logging
+from datakiln.metadata.database import DatabaseMeta, Session
 
 
 logger = logging.getLogger(__name__)

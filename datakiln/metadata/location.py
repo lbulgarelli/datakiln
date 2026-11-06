@@ -10,7 +10,7 @@ from textwrap import dedent
 from decouple import config
 from paramiko import SSHClient, AutoAddPolicy
 
-from data_utils.metadata.column import ColumnMeta
+from datakiln.metadata.column import ColumnMeta
 
 
 logger = logging.getLogger(__name__)

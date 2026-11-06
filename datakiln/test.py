@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import inspect
 
-from data_utils.metadata.database import DatabaseMeta, Session
+from datakiln.metadata.database import DatabaseMeta, Session
 
 DIRECTORY = Path()
 

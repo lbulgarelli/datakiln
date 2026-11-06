@@ -10,7 +10,7 @@ from pathlib import Path
 
 from redcap import Project  # pylint: disable=import-error
 
-from data_utils.build_metadata import get_parser, setup_logging
+from datakiln.build_metadata import get_parser, setup_logging
 
 
 logger = logging.getLogger(__name__)
@@ -368,7 +368,7 @@ def main(args=None):
         data.to_csv(
             file_path,
             encoding="utf-8",
-            index=False)  # Remove index for data_utils
+            index=False)  # Remove index for datakiln
 
         # Generate table metadata from form
         if args.json:

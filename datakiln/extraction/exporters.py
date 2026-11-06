@@ -21,7 +21,7 @@ from sqlalchemy import MetaData, Table, Column, Select
 from sqlalchemy.dialects import registry
 from sqlalchemy.exc import SQLAlchemyError
 
-from data_utils.metadata.database import Session
+from datakiln.metadata.database import Session
 
 
 logger = logging.getLogger(__name__)

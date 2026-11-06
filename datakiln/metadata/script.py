@@ -14,8 +14,8 @@ from sqlglot.errors import ParseError, SqlglotError
 from sqlglot.parser import Parser
 from sqlglot.tokens import Token, TokenType
 
-from data_utils.metadata.dialect import ExtendedPostgres
-from data_utils.metadata.table import Script
+from datakiln.metadata.dialect import ExtendedPostgres
+from datakiln.metadata.table import Script
 
 
 PUBLIC = "public"
@@ -100,9 +100,9 @@ class ScriptMeta:
         """Record of the script in the metadata, if it was built.
 
         :param session: Database Session.
-        :type session: data_utils.metadata.database.Session
+        :type session: datakiln.metadata.database.Session
 
-        :rtype: data_utils.metadata.table.Script
+        :rtype: datakiln.metadata.table.Script
         """
         return session.get(Script, self.full_name)
 
