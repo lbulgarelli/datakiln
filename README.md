@@ -1,6 +1,14 @@
-# Datakiln
+[![Lint](https://github.com/lbulgarelli/datakiln/actions/workflows/lint.yml/badge.svg)](https://github.com/lbulgarelli/datakiln/actions/workflows/lint.yml)
+[![Test](https://github.com/lbulgarelli/datakiln/actions/workflows/test.yml/badge.svg)](https://github.com/lbulgarelli/datakiln/actions/workflows/test.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Flbulgarelli.github.io%2Fdatakiln%2Fcoverage.json)](https://lbulgarelli.github.io/datakiln/coverage/)
+[![Docs](https://img.shields.io/badge/docs-latest-blue)](https://lbulgarelli.github.io/datakiln/)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/github/license/lbulgarelli/datakiln)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/lbulgarelli/datakiln)](https://github.com/lbulgarelli/datakiln/releases)
 
-Datakiln builds a database from a repository of files, so that any
+# datakiln
+
+datakiln builds a database from a repository of files, so that any
 version of a dataset can be rebuilt later with one command.
 
 Research datasets can span dozens of tables, with views and
