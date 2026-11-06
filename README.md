@@ -77,9 +77,9 @@ repository:
 pip install .
 ```
 
-This installs the commands `build_metadata`, `build_database`, `build_dbms`,
-`build_redcap` and `show_graph`. Run any of them with `--help` to see all of
-its options.
+This installs one command, `datakiln`, with the subcommands `build`,
+`metadata`, `graph` and `extract` (`extract dbms` and `extract redcap`). Run
+`datakiln --help`, or `--help` after a subcommand, to see all of its options.
 
 ## Dataset layout
 
@@ -158,8 +158,8 @@ From sample data files, it reads the first 10,000 rows of each file in `data/`
 and writes a JSON file for each table to `metadata/`:
 
 ```bash
-build_metadata dataset
-build_metadata dataset --delimiter ";"
+datakiln metadata dataset
+datakiln metadata dataset --delimiter ";"
 ```
 
 The columns are named from the headers, the types are guessed from the
@@ -168,11 +168,11 @@ Edit each file after: set the schema, the key, the real types and the
 descriptions.
 
 From a REDCap project, it downloads the data of each form to `data/` and, with
-`--json`, writes its metadata:
+`--metadata`, writes its metadata:
 
 ```bash
-build_redcap dataset --api-url https://redcap.example.org/api/ \
-    --api-key "$REDCAP_TOKEN" --json --schema redcap \
+datakiln extract redcap dataset --api-url https://redcap.example.org/api/ \
+    --api-key "$REDCAP_TOKEN" --metadata --schema redcap \
     --include demographics labs --exclude consent
 ```
 
@@ -181,7 +181,7 @@ From a source database, see [Extract from a database](#extract-from-a-database).
 ### Build the database
 
 ```bash
-build_database dataset
+datakiln build dataset
 ```
 
 This does the following:
@@ -211,10 +211,10 @@ This does the following:
 
 ```bash
 # Only one view, with the tables and scripts it needs
-build_database dataset --include study_derived.labs
+datakiln build dataset --include study_derived.labs
 
 # Everything again, and remove what is gone from the repository
-build_database dataset --rebuild-all --prune
+datakiln build dataset --rebuild-all --prune
 ```
 
 A build stops with an error if what is in the repository needs an object that
@@ -224,7 +224,7 @@ was removed from it.
 
 ```bash
 git checkout <commit>
-build_database dataset
+datakiln build dataset
 ```
 
 The build compares the checksums of the files and metadata at that commit with
@@ -330,10 +330,10 @@ need numbered names. The rules are:
 ### Dependency graph
 
 ```bash
-show_graph dataset                       # Mermaid text
-show_graph dataset --output graph.md     # Markdown with a Mermaid diagram
-show_graph dataset --output graph.html   # A page that any browser draws
-show_graph dataset --direction TB --include study_derived.labs
+datakiln graph dataset                       # Mermaid text
+datakiln graph dataset --output graph.md     # Markdown with a Mermaid diagram
+datakiln graph dataset --output graph.html   # A page that any browser draws
+datakiln graph dataset --direction TB --include study_derived.labs
 ```
 
 It draws the tables and the scripts as a diagram, with an arrow from what is
@@ -342,8 +342,7 @@ and `--include` limits the graph to some objects and what they need.
 
 ### Extract from a database
 
-`build_dbms` downloads data from a source database
-to `data/`, and can write the table metadata from the source's columns. Each
+`datakiln extract dbms` downloads data from a source database to `data/`, and can write the table metadata from the source's columns. Each
 table is described by a JSON file in `extract/`:
 
 ```json
@@ -370,7 +369,7 @@ download are also available. The format is documented in
 [`datakiln/extraction/models.py`](datakiln/extraction/models.py).
 
 ```bash
-build_dbms dataset --dialect oracle --host source.example.org --port 1521 \
+datakiln extract dbms dataset --dialect oracle --host source.example.org --port 1521 \
     --database ORCL --user analyst --metadata
 ```
 
@@ -385,7 +384,8 @@ build_dbms dataset --dialect oracle --host source.example.org --port 1521 \
 | `--parallel N` | Number of extractions at once. Default is 4. |
 
 The metadata is written in the dialect of the target database, set in the
-`.env` file of the dataset.
+`.env` file of the dataset. `extract redcap` takes the same `--data` and
+`--metadata` options, and `--include` and `--exclude` for forms.
 
 ### Permissions
 
@@ -394,14 +394,14 @@ gets read access to the schemas of the tables and scripts, which leaves out
 the staging schemas and the metadata. `--grant` gives that role to users:
 
 ```bash
-build_database dataset --grant alice bob
+datakiln build dataset --grant alice bob
 ```
 
 ### Logs
 
-Each command writes a log to the directory it runs in: `build.log`,
-`metadata.log`, `extract.log` or `redcap.log`. The log is overwritten on each
-run. `--stdout` also prints it.
+`build`, `metadata` and `extract` write a log to the directory they run in:
+`build.log`, `metadata.log` or `extract.log` (for both sources). The log is
+overwritten on each run, and `--stdout` also prints it. `graph` writes no log.
 
 ## Development
 
