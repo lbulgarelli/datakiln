@@ -10,7 +10,9 @@ from pathlib import Path
 
 from redcap import Project  # pylint: disable=import-error
 
-from datakiln.build_metadata import get_parser, setup_logging
+from datakiln.arguments import (
+    add_directory, add_export, add_include, add_log
+)
 
 
 logger = logging.getLogger(__name__)
@@ -306,26 +308,34 @@ def generate_table_data(project, form_name, form_meta,
     return data, form_meta, is_data_empty
 
 
-def main(args=None):
-    # pylint: disable=too-many-locals
-    """Downloads REDCap data and creates sample jsons for tables."""
-    # Arguments
-    parser = get_parser()
+def add_arguments(parser):
+    """Adds the options of the command.
+
+    :param parser: Parser of the command.
+    :type parser: argparse.ArgumentParser
+    """
+    add_directory(parser)
+    add_log(parser)
+    add_include(parser, "Extract only these forms. All by default.")
+    parser.add_argument("--exclude", metavar="name", type=str, nargs="+",
+                        help="Do not extract these forms.")
+    add_export(parser)
     parser.add_argument('--api-url', metavar="api_url", type=str,
                         required=True, help='REDCap API URL.')
     parser.add_argument('--api-key', metavar="api_key", type=str,
                         required=True, help='REDCap API token.')
-    parser.add_argument('--json', action='store_true', default=False,
-                        help='Whether to export the JSON table metadata.')
-    parser.add_argument(
-        '--schema', metavar='schema', type=str,
-        help='Specify the schema name for the json metadata, default is none.')
-    parser.add_argument('--include', metavar='include', type=str, nargs='+',
-                        help='Specify forms to include, default is all.')
-    parser.add_argument('--exclude', metavar='exclude', type=str, nargs='+',
-                        help='Specify forms to exclude, default is none.')
-    args = parser.parse_args(args)
-    setup_logging(args.stdout, "redcap.log")
+    parser.add_argument('--schema', metavar='schema', type=str,
+                        help='Schema of the tables in the metadata. None '
+                             'by default.')
+
+
+def run(args):
+    # pylint: disable=too-many-locals
+    """Downloads REDCap data and creates sample metadata for tables.
+
+    :param args: Arguments of the command.
+    :type args: argparse.Namespace
+    """
     directory = Path(args.directory).absolute()
 
     # API parameters
@@ -363,14 +373,15 @@ def main(args=None):
             event_id=event_id)
 
         # Export to file
-        file_path = data_dir / f"{form_name}.csv"
-        data.to_csv(
-            file_path,
-            encoding="utf-8",
-            index=False)  # Remove index for datakiln
+        if args.data:
+            file_path = data_dir / f"{form_name}.csv"
+            data.to_csv(
+                file_path,
+                encoding="utf-8",
+                index=False)  # Remove index for datakiln
 
         # Generate table metadata from form
-        if args.json:
+        if args.metadata:
             logger.info("Form '%s': Generating table metadata.", form_name)
             table_meta = generate_table_meta(
                 form_name,
@@ -388,7 +399,3 @@ def main(args=None):
             target_fn = f"{tables_dir/form_name}.json"
             with open(target_fn, "w", encoding="utf-8") as target_file:
                 json.dump(table_meta, target_file, indent=4)
-
-
-if __name__ == "__main__":
-    main()

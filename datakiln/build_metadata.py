@@ -1,16 +1,16 @@
 """
 Generate metadata from data file.
 """
-import sys
 import json
 import logging
 from pathlib import Path
 from itertools import starmap
 from functools import partial
-from argparse import ArgumentParser
 
 import pandas as pd
 from slugify import slugify
+
+from datakiln.arguments import add_directory, add_log
 
 
 logger = logging.getLogger(__name__)
@@ -40,41 +40,6 @@ def dtype_to_psql(dtype):
     if dtype == bool:
         return "BOOLEAN"
     return None
-
-
-def get_parser():
-    """Generates default parser.
-
-    :return: Argument parser.
-    :rtype: argparse.ArgumentParser
-    """
-    parser = ArgumentParser()
-    parser.add_argument("directory", metavar="directory", type=str,
-                        help="""Path of the directory with the dataset
-                        metadata.""")
-    parser.add_argument("--stdout", action="store_true",
-                        help="Output logs to standard output")
-    return parser
-
-
-def setup_logging(stdout=False, log_file="build.log"):
-    """Sets up logging for the scripts.
-
-    :param stdout: Whether to output logs to standard output.
-    :type: bool
-
-    :param log_file: Path to the log file.
-    :type: str
-    """
-    handlers = [logging.FileHandler(log_file, mode="w")]
-    if stdout:
-        handlers.append(logging.StreamHandler(sys.stdout))
-
-    logging.basicConfig(
-        level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S",
-        format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s",
-        handlers=handlers
-    )
 
 
 def dtype_to_meta(column, dtype):
@@ -135,15 +100,25 @@ def generate_table_meta(meta_dir, table_name, data):
         json.dump(meta, file, indent=4)
 
 
-def main(args=None):
-    """Generates metadata from data file."""
-    # Get arguments
-    parser = get_parser()
+def add_arguments(parser):
+    """Adds the options of the command.
+
+    :param parser: Parser of the command.
+    :type parser: argparse.ArgumentParser
+    """
+    add_directory(parser)
+    add_log(parser)
     parser.add_argument('--delimiter', metavar="delimiter", type=str,
                         required=False,
                         help='Character to treat as delimiter.')
-    args = parser.parse_args(args)
-    setup_logging(args.stdout, "metadata.log")
+
+
+def run(args):
+    """Generates metadata from the data files.
+
+    :param args: Arguments of the command.
+    :type args: argparse.Namespace
+    """
 
     # Get absolute path for specified directory
     directory = Path(args.directory).absolute()
@@ -188,7 +163,3 @@ def main(args=None):
         # Generate metadata
         for table_name, df in data.items():
             generate_table_meta(meta_dir, table_name, df)
-
-
-if __name__ == "__main__":
-    main()

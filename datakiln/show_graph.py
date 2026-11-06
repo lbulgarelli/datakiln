@@ -1,7 +1,6 @@
 """
 Shows the dependency graph of the tables and derive scripts.
 """
-from argparse import ArgumentParser
 from html import escape
 from operator import attrgetter
 from pathlib import Path
@@ -9,6 +8,7 @@ from typing import Iterable, List
 
 import networkx as nx
 
+from datakiln.arguments import add_directory, add_include
 from datakiln.metadata.database import DatabaseMeta
 from datakiln.metadata.graph import DatabaseGraph
 from datakiln.metadata.table import TableMeta
@@ -220,29 +220,36 @@ def html(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
 FORMATS = {".md": markdown, ".html": html}
 
 
-def main(args=None):
-    """Shows the dependency graph of the tables and derive scripts."""
-    parser = ArgumentParser(description=__doc__)
-    parser.add_argument("directory", metavar="directory", type=str,
-                        help="Path of the directory with the dataset "
-                             "metadata.")
+def add_arguments(parser):
+    """Adds the options of the command.
+
+    :param parser: Parser of the command.
+    :type parser: argparse.ArgumentParser
+    """
+    add_directory(parser)
+    add_include(parser, "Show only these tables and scripts, and what "
+                        "they need.")
     parser.add_argument("--direction", choices=["LR", "TB"], default="LR",
                         help="Direction of the flow: left to right, or top "
                              "to bottom.")
-    parser.add_argument("--include", metavar="name", type=str, nargs="+",
-                        help="Show only these tables and scripts, and what "
-                             "they need")
     parser.add_argument("--schemas", action="store_true",
                         help="Show the scripts that create schemas, and "
-                             "the arrows from them")
+                             "the arrows from them.")
     parser.add_argument("--output", metavar="file", type=str,
                         help="File to write the graph to, instead of "
                              "standard output. Its extension tells the "
                              "format: .md is a Markdown document, which "
-                             "GitLab draws when it is opened, and .html is "
-                             "a web page, which a browser draws. Anything "
-                             "else is Mermaid text.")
-    args = parser.parse_args(args)
+                             "GitHub and GitLab draw when it is opened, "
+                             "and .html is a web page, which a browser "
+                             "draws. Anything else is Mermaid text.")
+
+
+def run(args):
+    """Shows the dependency graph of the tables and scripts.
+
+    :param args: Arguments of the command.
+    :type args: argparse.Namespace
+    """
 
     directory = Path(args.directory).absolute()
     name = DatabaseMeta.load_env(directory, required=False)["database"]
@@ -256,7 +263,3 @@ def main(args=None):
         Path(args.output).write_text(text, encoding="utf-8")
     else:
         print(text, end="")
-
-
-if __name__ == "__main__":
-    main()

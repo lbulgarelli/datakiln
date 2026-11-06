@@ -4,29 +4,38 @@ Creates table and loads data.
 import logging
 from pathlib import Path
 
-from datakiln.build_metadata import get_parser, setup_logging
+from datakiln.arguments import add_directory, add_include, add_log
 from datakiln.metadata.database import DatabaseMeta, Session
 
 
 logger = logging.getLogger(__name__)
 
 
-def main(args=None):
-    """Creates table and loads data."""
-    # Get arguments
-    parser = get_parser()
+def add_arguments(parser):
+    """Adds the options of the command.
+
+    :param parser: Parser of the command.
+    :type parser: argparse.ArgumentParser
+    """
+    add_directory(parser)
+    add_log(parser)
+    add_include(parser, "Build only these tables and scripts, and "
+                        "what they need.")
     parser.add_argument("--grant", metavar="grant", type=str, nargs='+',
-                        help="Grant read permissions to specified users")
-    parser.add_argument("--include", metavar="name", type=str, nargs="+",
-                        help="Build only these tables and scripts, and what "
-                             "they use")
+                        help="Grant read permissions to specified users.")
     parser.add_argument("--rebuild-all", action="store_true",
-                        help="Rebuild all tables and derive scripts, even if "
-                             "up to date")
+                        help="Rebuild all tables and scripts, even if "
+                             "up to date.")
     parser.add_argument("--prune", action="store_true",
-                        help="Drop the objects removed from the repo")
-    args = parser.parse_args(args)
-    setup_logging(args.stdout, "build.log")
+                        help="Drop the objects removed from the repo.")
+
+
+def run(args):
+    """Creates the tables, loads the data and runs the scripts.
+
+    :param args: Arguments of the command.
+    :type args: argparse.Namespace
+    """
 
     # Get absolute of specified path
     directory = Path(args.directory).absolute()
@@ -99,7 +108,3 @@ def main(args=None):
     database.grant(session, args.grant)
     session.commit()
     session.close()
-
-
-if __name__ == "__main__":
-    main()

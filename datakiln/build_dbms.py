@@ -2,12 +2,13 @@
 Builds table metadata from DBMS.
 """
 import logging
-from argparse import BooleanOptionalAction
 from getpass import getuser
 from pathlib import Path
 
 from datakiln.metadata.database import DatabaseMeta, DRIVER
-from datakiln.build_metadata import get_parser, setup_logging
+from datakiln.arguments import (
+    add_directory, add_export, add_include, add_log
+)
 from datakiln.extraction.models import ExtractMeta, ExtractGraph
 from datakiln.extraction.strategies import (
     StreamStrategy, TempTableStrategy, ParallelExecutor
@@ -18,11 +19,17 @@ from datakiln.extraction.exporters import MetadataExtractor
 logger = logging.getLogger(__name__)
 
 
-def main(args=None):
-    # pylint: disable=too-many-locals, too-many-branches, too-many-statements
-    """Downloads data and creates sample metadata for tables."""
-    # Arguments
-    parser = get_parser()
+def add_arguments(parser):
+    """Adds the options of the command.
+
+    :param parser: Parser of the command.
+    :type parser: argparse.ArgumentParser
+    """
+    add_directory(parser)
+    add_log(parser)
+    add_include(parser, "Extract only these tables, and the ones they "
+                        "need.")
+    add_export(parser)
     parser.add_argument('--dialect', metavar="dialect", type=str,
                         required=True, choices=DRIVER.keys(),
                         help='Dialect of the source DBMS.')
@@ -30,7 +37,8 @@ def main(args=None):
                         required=True, help='Hostname of the source DBMS.')
     parser.add_argument('--port', metavar="port", type=str,
                         required=True,
-                        help='Port to use when connecting to the source DBMS.')
+                        help='Port to use when connecting to the source '
+                             'DBMS.')
     parser.add_argument('--user', metavar="user", type=str,
                         required=False, default=getuser(),
                         help='Username to use when connecting to the source '
@@ -42,18 +50,19 @@ def main(args=None):
     parser.add_argument('--database', metavar="database", type=str,
                         required=True,
                         help='Database to connect to in the source DBMS.')
-    parser.add_argument('--metadata', action='store_true', default=False,
-                        help='Whether to export the JSON table metadata.')
-    parser.add_argument('--data', action=BooleanOptionalAction, default=True,
-                        help='Whether to extract data from the source DBMS.')
-    parser.add_argument('--include', type=str, required=False, nargs='+',
-                        help='Limit data extraction to the specified tables.')
     parser.add_argument('--read-only', action='store_true', default=False,
                         help='Run in read-only mode (no temp tables).')
     parser.add_argument('--parallel', type=int, default=4,
                         help='Number of parallel extraction jobs.')
-    args = parser.parse_args(args)
-    setup_logging(args.stdout, "extract.log")
+
+
+def run(args):
+    # pylint: disable=too-many-locals, too-many-branches, too-many-statements
+    """Downloads data and creates sample metadata for tables.
+
+    :param args: Arguments of the command.
+    :type args: argparse.Namespace
+    """
     directory = Path(args.directory).absolute()
 
     # Create output directory
@@ -125,7 +134,3 @@ def main(args=None):
                     table,
                     db_params["dialect"]
                 )
-
-
-if __name__ == "__main__":
-    main()

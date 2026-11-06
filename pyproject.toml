@@ -48,10 +48,7 @@ docs = [
 ]
 
 [project.scripts]
-build_metadata = "datakiln.build_metadata:main"
-build_database = "datakiln.build_database:main"
-build_dbms = "datakiln.build_dbms:main"
-show_graph = "datakiln.show_graph:main"
+datakiln = "datakiln.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["datakiln"]
