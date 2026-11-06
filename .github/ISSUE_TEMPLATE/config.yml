@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://lbulgarelli.github.io/datakiln/
+    about: The description of the code, and the README for how to use it.
