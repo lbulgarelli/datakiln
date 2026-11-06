@@ -8,6 +8,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     services:
       postgres:
         image: postgres:16
@@ -26,7 +30,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install
         run: |
@@ -46,6 +50,7 @@ jobs:
           --cov-report=term-missing
           --cov-report=html:htmlcov
       - name: Coverage badge
+        if: matrix.python-version == '3.12'
         run: |
           percent=$(coverage report --format=total)
           if [ "$percent" -ge 90 ]; then color=brightgreen
@@ -59,6 +64,7 @@ jobs:
           printf '{"schemaVersion": 1, "label": "coverage", "message": "%s%%", "color": "%s"}\n' \
             "$percent" "$color" > badge/coverage.json
       - uses: actions/upload-artifact@v7
+        if: matrix.python-version == '3.12'
         with:
           name: coverage
           path: |
