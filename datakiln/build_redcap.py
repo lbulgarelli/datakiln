@@ -81,7 +81,6 @@ def get_postgres_type(field_type, validation):
     :return: PostgreSQL data type.
     :rtype: str
     """
-    print(validation)
     if field_type == "checkbox":
         return "INTEGER[]"
     if validation == "integer":
