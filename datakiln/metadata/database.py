@@ -66,10 +66,10 @@ class DatabaseMeta():
         :param pattern: Glob pattern of the files.
         :type pattern: str
 
-        :return: Paths of the files, in no particular order.
+        :return: Paths of the files, sorted.
         :rtype: Iterator[pathlib.Path]
         """
-        for path in (self.directory / directory).glob(pattern):
+        for path in sorted((self.directory / directory).glob(pattern)):
             if str(path.relative_to(self.directory)) not in self.ignore:
                 yield path
 
