@@ -1,3 +1,4 @@
+[![PyPI](https://img.shields.io/pypi/v/datakiln)](https://pypi.org/project/datakiln/)
 [![Lint](https://github.com/lbulgarelli/datakiln/actions/workflows/lint.yml/badge.svg)](https://github.com/lbulgarelli/datakiln/actions/workflows/lint.yml)
 [![Test](https://github.com/lbulgarelli/datakiln/actions/workflows/test.yml/badge.svg)](https://github.com/lbulgarelli/datakiln/actions/workflows/test.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Flbulgarelli.github.io%2Fdatakiln%2Fcoverage.json)](https://lbulgarelli.github.io/datakiln/coverage/)
@@ -70,11 +71,10 @@ depends on it.
 ## Installation
 
 It needs Python and a database server. The metadata gives a column type for
-each DBMS, so the tool is meant to work with more than one. From a clone of the
-repository:
+each DBMS, so the tool is meant to work with more than one.
 
 ```bash
-pip install .
+pip install datakiln
 ```
 
 This installs one command, `datakiln`, with the subcommands `build`,
@@ -414,15 +414,17 @@ DB_HOST=localhost
 DB_NAME=test
 ```
 
+To work on the code, install it from a clone with the extras for the tests,
+the lint and the documentation:
+
 ```bash
-pip install -e .
+pip install -e ".[test,lint,docs]"
 pytest tests
 flake8 datakiln tests
 pylint datakiln
 ```
 
-The tests of the script reader (`tests/unit/test_script.py`) do not need the
-database.
+The documentation of the code is at <https://lbulgarelli.github.io/datakiln/>.
 
 A dataset repository can test its own metadata and scripts by running the
 tests in `datakiln/test.py` from its directory. They create a `__test`
@@ -435,4 +437,4 @@ pytest --pyargs datakiln.test
 
 ## License
 
-See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
