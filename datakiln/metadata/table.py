@@ -25,6 +25,7 @@ from sqlalchemy.orm import (
 
 from datakiln.io import open_excel, NullStripper
 from datakiln.metadata.column import ColumnMeta
+from datakiln.metadata.files import LocalRepo
 from datakiln.metadata.location import SSHLocation
 from datakiln.metadata.foreign_key import ForeignKeyMeta
 from datakiln.metadata.unpivot import UnpivotMeta
@@ -791,17 +792,37 @@ class TableMeta(TableBase):
         session.merge(artifact)
 
     def pull(self):
-        """Fetch the data file from the DVC remote, if it is not in the
-        folder of the data files. Local files are not fetched.
+        """Fetch the data file, if it is not in the folder of the data files.
+        It is pulled from the default DVC remote, if there is one. Otherwise,
+        a file that DVC imported from a URL (``dvc import-url``) is downloaded
+        from there.
 
         :return: None
         """
         repo = self.artifact["repo"]
         path = Path(repo.root_dir) / self.artifact["name"]
-        stats = repo.pull(targets=[str(path)]).get("stats", {})
-        if stats.get("fetched"):
+
+        # Nothing to fetch: the file is there, or the folder is not DVC
+        if isinstance(repo, LocalRepo) or path.exists():
+            return
+
+        # With a default remote, the file has to come from it
+        if repo.config.get("core", {}).get("remote"):
+            repo.pull(targets=[str(path)])
             logger.info("Table '%s'.'%s': Pulled file '%s'.",
                         self.schema, self.name, self.artifact["name"])
+            return
+
+        # Otherwise, it was imported: download it if it has not changed
+        dvc_file = path.with_name(path.name + ".dvc")
+        stage = repo.stage.load_one(str(dvc_file))
+        if stage.deps[0].changed_checksum():
+            raise ValueError(
+                f"The file at the URL of '{self.artifact['name']}' changed "
+                "since it was imported.")
+        repo.update(targets=[str(dvc_file)])
+        logger.info("Table '%s'.'%s': Downloaded file '%s'.",
+                    self.schema, self.name, self.artifact["name"])
 
     def record(self, session):
         """Record of the table in the metadata, if it was built.
