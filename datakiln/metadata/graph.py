@@ -190,15 +190,23 @@ class DatabaseGraph(DependencyGraph):
     """Dependency graph for the tables (metadata) and the scripts (derive)
     of a database."""
 
-    def __init__(self, tables: List, scripts: List[ScriptMeta]):
+    def __init__(self, tables: List, scripts: List[ScriptMeta],
+                 external: Optional[List] = None):
         """
         :param tables: Table metadata.
         :type tables: list[datakiln.metadata.table.TableMeta]
 
         :param scripts: Scripts that create objects from the tables.
         :type scripts: list[ScriptMeta]
+
+        :param external: Tables and scripts that other repos build, which the
+                         tables and scripts can use. They are not built.
+        :type external: list
         """
-        created = {table.full_name: table for table in tables}
+        created = {}
+        for table in (external or []) + tables:
+            created[table.full_name] = table
+
         overloads: Dict[str, Set] = {}
         for script in scripts:
             # An object can only be created once
@@ -217,21 +225,29 @@ class DatabaseGraph(DependencyGraph):
 
     @cached_property
     def schemas(self) -> Set[str]:
-        """Schemas of the tables and scripts, in lower case. A function is in
-        none."""
+        """Schemas of the tables and scripts, in lower case, other than the
+        ones of the external objects. A function is in none."""
         schemas = set()
-        for name in self.nodes:
-            if "(" not in name:
+        for name, node in self.nodes.items():
+            if "(" not in name and not node.external:
                 schemas.add(name.partition(".")[0])
         return schemas
 
     @property
     def tables(self) -> List:
-        """Tables, ordered so that referenced tables come first."""
-        return [n for n in self.sort() if isinstance(n, TableMeta)]
+        """Tables to build, ordered so that referenced tables come first."""
+        tables = []
+        for node in self.sort():
+            if isinstance(node, TableMeta) and not node.external:
+                tables.append(node)
+        return tables
 
     @property
     def scripts(self) -> List[ScriptMeta]:
-        """Scripts, ordered so that the scripts creating the objects they
-        use come first."""
-        return [n for n in self.sort() if isinstance(n, ScriptMeta)]
+        """Scripts to build, ordered so that the scripts creating the objects
+        they use come first."""
+        scripts = []
+        for node in self.sort():
+            if isinstance(node, ScriptMeta) and not node.external:
+                scripts.append(node)
+        return scripts

@@ -93,11 +93,16 @@ dataset/
 ├── metadata/        # Table metadata, one JSON file for each table
 ├── transform/       # SQL scripts that run on the loaded data
 ├── derive/          # SQL scripts that create views, functions...
+├── dependencies/    # Datasets that other repos build (optional)
 └── extract/         # Extraction metadata (only to extract from a DBMS)
 ```
 
 `.dataignore` lists files, one for each line, relative to the dataset
 directory (`derive/old.sql`). They are left out of the build.
+
+Each folder in `dependencies/` is another dataset, usually a Git submodule. Its
+tables (`metadata/`) and scripts (`derive/`) can be used by this dataset, but
+they are not built: that dataset builds them in the same database.
 
 ### Environment
 

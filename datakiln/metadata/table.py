@@ -349,13 +349,18 @@ class TableMeta(TableBase):
     """Metadata for table."""
 
     def __init__(self, constraints=None, indexes=None, unpivot=None,
-                 location=None, **kwargs):
+                 location=None, external=False, **kwargs):
+        # pylint: disable=too-many-locals
         r"""
         :param constraints: Metadata for table constraints.
         :type constraints: dict
 
         :param unpivot: Metadata for unpivoting table columns.
         :type unpivot: list[dict]
+
+        :param external: Whether another repo builds the table, which is in
+                         the dependencies folder.
+        :type external: bool
 
         :param \**kwargs: TableBase attributes.
         :type \**kwargs: dict
@@ -365,6 +370,7 @@ class TableMeta(TableBase):
         """
         super().__init__(**kwargs)
 
+        self.external = external
         self.primary_key = constraints["primary_key"]
         self.uniques = constraints.get("uniques", [])
         self.indexes = indexes or []
@@ -885,14 +891,17 @@ class TableMeta(TableBase):
         return list(ordered)
 
     @classmethod
-    def from_json(cls, meta_path, data_files):
+    def from_json(cls, meta_path, data_files=None, external=False):
         """Load metadata.
 
         :param meta_path: Path to the metadata
         :type meta_path: str
 
-        :param data_files: Data files of the tables.
+        :param data_files: Data files of the tables, unless it is external.
         :type data_files: datakiln.metadata.files.DataFiles
+
+        :param external: Whether another repo builds the table.
+        :type external: bool
 
         :return: Table metadata.
         :rtype: TableMeta
@@ -907,9 +916,11 @@ class TableMeta(TableBase):
             meta_json = json.loads(content.decode("utf-8"))
         meta_name = meta_path.stem
 
-        # Determine path to data file(s)
-        artifact = data_files.find(meta_name)
+        # Determine path to data file(s), if there are any
+        artifact = None
+        if not external:
+            artifact = data_files.find(meta_name)
 
         return TableMeta(
             artifact=artifact, checksum=meta_hash.hexdigest(),
-            **meta_json)
+            external=external, **meta_json)

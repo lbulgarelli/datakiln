@@ -95,24 +95,46 @@ class DatabaseMeta():
         :return: Script metadata.
         :rtype: list[datakiln.metadata.script.ScriptMeta]
         """
-        # The dialect is set in the environment of the database
-        dialect = self.load_env(self.directory, required=False)["dialect"]
-        dialect = DIALECT_MAP.get(dialect, dialect)
-
         scripts = []
         for path in self._files("derive", "**/*.sql"):
-            scripts.append(ScriptMeta.from_sql(path, self.directory, dialect))
+            scripts.append(
+                ScriptMeta.from_sql(path, self.directory, self.dialect))
         return scripts
+
+    @cached_property
+    def dialect(self):
+        """SQL dialect, which is set in the environment of the database."""
+        dialect = self.load_env(self.directory, required=False)["dialect"]
+        return DIALECT_MAP.get(dialect, dialect)
+
+    @cached_property
+    def external(self):
+        """Retrieve the tables and scripts of the repos in the dependencies
+        folder, which those repos build. They have no data files here.
+
+        :return: Tables and scripts, marked as external.
+        :rtype: list
+        """
+        external = []
+        dependencies = self.directory / "dependencies"
+        for path in sorted(dependencies.glob("**/metadata/*.json")):
+            external.append(TableMeta.from_json(path, external=True))
+        for path in sorted(dependencies.glob("**/derive/**/*.sql")):
+            external.append(ScriptMeta.from_sql(
+                path, self.directory, self.dialect, external=True))
+        return external
 
     @cached_property
     def graph(self):
         """Dependency graph of the tables (metadata) and scripts (derive),
-        which gives them in the order they depend on one another.
+        which gives them in the order they depend on one another. The objects
+        of the dependencies folder are in it, so they can be used, but they
+        are not built.
 
         :return: Dependency graph.
         :rtype: datakiln.metadata.graph.DatabaseGraph
         """
-        return DatabaseGraph(self.tables, self.scripts)
+        return DatabaseGraph(self.tables, self.scripts, self.external)
 
     def grant(self, session, users=None):
         """Grants read on the objects of the schemas of the tables and scripts,

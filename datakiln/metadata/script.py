@@ -33,7 +33,7 @@ class ScriptError(ValueError):
 
 
 class ScriptMeta:
-    # pylint: disable=too-few-public-methods
+    # pylint: disable=too-few-public-methods, too-many-instance-attributes
     """SQL script and the database objects it creates and uses."""
 
     _functions = {"FUNCTION", "PROCEDURE", "AGGREGATE"}
@@ -48,7 +48,8 @@ class ScriptMeta:
     _commands = {TokenType.COMMAND, TokenType.EXECUTE}
 
     def __init__(self, path: Path, sql: str,
-                 dialect: Union[str, Type[Dialect]] = ExtendedPostgres):
+                 dialect: Union[str, Type[Dialect]] = ExtendedPostgres,
+                 external: bool = False):
         """
         :param path: Path of the script.
         :type path: Path
@@ -58,11 +59,16 @@ class ScriptMeta:
 
         :param dialect: SQLGlot dialect of the script, by name or class.
         :type dialect: str | type[sqlglot.dialects.dialect.Dialect]
+
+        :param external: Whether another repo builds the script, which is in
+                         the dependencies folder.
+        :type external: bool
         """
         self.path = Path(path)
         self.sql = sql
         self.checksum = md5(sql.encode()).hexdigest()  # noqa: DUO130
         self.dialect = dialect
+        self.external = external
         self.full_name = ""
         self.drop = ""
         self.requires: Set[str] = set()
@@ -77,8 +83,8 @@ class ScriptMeta:
 
     @classmethod
     def from_sql(cls, path: Path, directory: Path,
-                 dialect: Union[str, Type[Dialect]] = ExtendedPostgres
-                 ) -> 'ScriptMeta':
+                 dialect: Union[str, Type[Dialect]] = ExtendedPostgres,
+                 external: bool = False) -> 'ScriptMeta':
         """Load script metadata from a SQL file.
 
         :param path: Path of the script.
@@ -90,11 +96,15 @@ class ScriptMeta:
         :param dialect: SQLGlot dialect of the script, by name or class.
         :type dialect: str | type[sqlglot.dialects.dialect.Dialect]
 
+        :param external: Whether another repo builds the script.
+        :type external: bool
+
         :return: Script metadata.
         :rtype: ScriptMeta
         """
         with open(path, "r", encoding="utf-8") as file:
-            return cls(path.relative_to(directory), file.read(), dialect)
+            return cls(path.relative_to(directory), file.read(), dialect,
+                       external=external)
 
     def record(self, session):
         """Record of the script in the metadata, if it was built.
