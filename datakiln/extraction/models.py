@@ -326,8 +326,12 @@ class JoinConfig:
 
     @property
     def columns(self) -> List[str]:
-        """Left-side column references (backward-compatible view of pairs)."""
-        return [pair.left for pair in self.pairs]
+        """Left-side column references, other than the constants."""
+        columns = []
+        for pair in self.pairs:
+            if not isinstance(pair, ConstantFilter):
+                columns.append(pair.left)
+        return columns
 
     def seed_pairs(self) -> Iterator["SeedPair"]:
         """Pairs that link a local cohort column to a remote column."""
@@ -404,7 +408,7 @@ class FilterConfig:
 
             # Validate that joins do not reference tables outside its scope
             for col in j_config.columns:
-                if not any(col.startswith(f"{a}.") for a in valid_aliases):
+                if col.partition(".")[0] not in valid_aliases:
                     raise ValueError(f"Invalid alias in join column '{col}'.")
 
             self.join.append(j_config)
