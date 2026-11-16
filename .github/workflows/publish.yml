@@ -1,44 +1,49 @@
 name: Publish
 
-# Publishes to PyPI when a release is published on GitHub, or when it is run by
-# hand for a tag. PyPI trusts this workflow (a trusted publisher), so there is
-# no token to store.
+# Releases the version in pyproject.toml when it is pushed to main and there is
+# no tag for it yet: it is published to PyPI, then tagged and released on
+# GitHub with the same files. PyPI trusts this workflow (a trusted publisher),
+# so there is no token to store. Run by hand, it only builds and checks the
+# files, unless dry_run is turned off, which also finishes a release that
+# failed half way.
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
-      tag:
-        description: Tag to publish, such as v0.3.0
-        required: true
       dry_run:
         description: Only build and check the files, without publishing
         type: boolean
         default: true
+
+# Two pushes in a row must not release the same version twice
+concurrency:
+  group: publish
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-    env:
-      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ env.TAG }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
-      - name: Check that the tag is the version of the package
+      - name: Find the version, and whether it is released
+        id: version
         run: |
-          python -m pip install --upgrade packaging
-          version=$(python -c "import tomllib; from packaging.version import Version; print(Version(tomllib.load(open('pyproject.toml', 'rb'))['project']['version']))")
-          tag=$(python -c "import os; from packaging.version import Version; print(Version(os.environ['TAG'].removeprefix('v')))")
-          if [ "$version" != "$tag" ]; then
-            echo "The tag is $TAG, but the version of the package is $version."
-            exit 1
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
           fi
       - name: Build
         run: |
@@ -52,7 +57,7 @@ jobs:
 
   publish:
     needs: build
-    if: github.event_name == 'release' || !inputs.dry_run
+    if: needs.build.outputs.release == 'true' && (github.event_name == 'push' || !inputs.dry_run)
     runs-on: ubuntu-24.04
     environment:
       name: pypi
@@ -65,3 +70,28 @@ jobs:
           name: dist
           path: dist
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # If the release job failed after the upload, a rerun uploads the
+          # same files again, which PyPI refuses, and the release never runs
+          skip-existing: true
+
+  release:
+    needs: [build, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: Tag and release on GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "v$VERSION" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "datakiln $VERSION" \
+            --generate-notes

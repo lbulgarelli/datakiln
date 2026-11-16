@@ -58,3 +58,9 @@ request.
 
 Open a pull request against `main` and describe what it changes. If you are
 not sure that a change fits, open an issue first.
+
+## Releasing
+
+To release, raise `version` in `pyproject.toml` and merge it to `main`. The
+Publish workflow uploads that version to PyPI, then tags it and creates the
+release on GitHub, unless the tag already exists.
