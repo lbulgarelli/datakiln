@@ -42,7 +42,7 @@ flake8 datakiln tests
 flake8 --select=DUO datakiln
 ```
 
-The checks run on Python 3.10 to 3.13 for the tests, and on every pull
+The checks run on Python 3.10 to 3.14 for the tests, and on every pull
 request.
 
 ## The code and the changes
