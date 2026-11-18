@@ -57,10 +57,18 @@ class MetadataExtractor:
         """Generate column metadata from DBMS."""
         dialect_obj = registry.load(dialect)
         type_ = column.type.dialect_impl(dialect_obj())
+
+        # remove collation to avoid MSSQL conflict?
+        # or keep it and fix it in build?
+        # sqlalchemy.exc.ProgrammingError: (psycopg2.errors.UndefinedObject) collation "SQL_Latin1_General_CP1_CI_AS" for encoding "UTF8" does not exist
+        # LINE 1: CREATE TABLE public.pat_enc (PAT_ID VARCHAR(18) COLLATE "SQL...
+        if dialect == "postgresql" and hasattr(type_, "collation"): 
+            type_.collation = None 
+
         return {
             "name": column.name,
             "dtype": {
-                dialect: type_.compile() if compile_type else type_
+                dialect: type_.compile(dialect=dialect_obj()) if compile_type else type_
             }
         }
 
