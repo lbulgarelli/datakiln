@@ -46,7 +46,8 @@ dependencies = [
     "sqlparse>=0.5.5",
     "dvc[ssh]>=3.60.1",
     "paramiko>=4.0.0",
-    "tenacity>=8.0.0"
+    "tenacity>=8.0.0",
+    "pyodbc>=5.5.0"
 ]
 
 [project.urls]

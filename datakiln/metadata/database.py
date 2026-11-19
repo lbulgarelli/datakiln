@@ -29,7 +29,17 @@ from datakiln.metadata.script import ScriptMeta
 
 DRIVER = {
     "postgresql": "psycopg2",
-    "oracle": "oracledb"
+    "oracle": "oracledb",
+    "mssql": "pyodbc"
+}
+# Fix SQL Server connection/driver
+# TODO: add tuple for DRIVER, try mssql-python first, fallout to pyodc
+# UP: https://github.com/microsoft/mssql-python/issues/625
+QUERY = {
+    "mssql": {
+        "driver": "FreeTDS",
+        "TrustServerCertificate": "yes"
+    }
 }
 logger = logging.getLogger(__name__)
 
@@ -576,7 +586,8 @@ class Session(SQLAlchemySession):
             password=password,
             host=host,
             database=database,
-            port=port
+            port=port,
+            query=QUERY.get(dialect, {})
         )
 
         engine = create_engine(
@@ -587,7 +598,7 @@ class Session(SQLAlchemySession):
         )
 
         # Create database
-        if dialect != "oracle" and not database_exists(url_object):
+        if dialect not in ("oracle", "mssql") and not database_exists(url_object):
             create_database(url_object)
 
         return Session(bind=engine, autoflush=True)
