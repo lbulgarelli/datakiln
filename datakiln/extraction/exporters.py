@@ -173,7 +173,7 @@ class DataExporter:
                 )
 
                 # Write CSV header
-                header = list(result.keys())
+                header = list(map(str.lower, result.keys()))
                 try:
                     idx = header.index("meta_row_id")
                     header.pop(idx)
