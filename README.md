@@ -118,22 +118,11 @@ the file itself must exist to build the database.
 | `DB_NAME` | `postgres` | Created if it does not exist. |
 | `DB_DIALECT` | `postgresql` | The DBMS of the database to build. |
 | `DB_ISOLATION_LEVEL` | `READ COMMITTED` | Transaction isolation level of the connection. |
-| `DB_DRIVER` | `psycopg2`, `oracledb` or `pyodbc` | The SQLAlchemy driver of the dialect, for another one (`mssqlpython` needs SQLAlchemy 2.1). |
-| `DB_OPTIONS` | none | Options of the connection, as a query string. |
 
 ```bash
 DB_USER=analyst
 DB_HOST=db.example.org
 DB_NAME=study
-```
-
-A SQL Server database is built with `DB_DIALECT=mssql`. `pyodbc` needs the
-name of the ODBC driver, and the server can ask to trust its certificate:
-
-```bash
-DB_DIALECT=mssql
-DB_USER=DOMAIN\analyst
-DB_OPTIONS=driver=FreeTDS&TrustServerCertificate=yes
 ```
 
 There is no variable for the database password. The connection uses the
@@ -389,10 +378,20 @@ datakiln extract dbms dataset --dialect oracle --host source.example.org --port 
     --database ORCL --user analyst --metadata
 ```
 
+A SQL Server source with a domain user, through `pyodbc`, which needs the name
+of the ODBC driver, and the option to trust the certificate of the server:
+
+```bash
+datakiln extract dbms dataset --dialect mssql --host source.example.org --port 1433 \
+    --database EPIC --user 'DOMAIN\analyst' --options 'driver=FreeTDS&TrustServerCertificate=yes'
+```
+
 | Option | |
 | --- | --- |
 | `--dialect`, `--host`, `--port`, `--database` | The source DBMS, all required. |
 | `--user`, `--password` | The default user is the current one. |
+| `--driver` | The SQLAlchemy driver of the source, if not the default of the dialect (`psycopg2`, `oracledb` or `pyodbc`). `mssqlpython` needs SQLAlchemy 2.1. |
+| `--options` | Options of the connection to the source, as a query string. |
 | `--metadata` | Also write the JSON metadata of the tables to `metadata/`. |
 | `--no-data` | Only write the metadata, without downloading data. |
 | `--include table...` | Extract only these tables, and what they need. |

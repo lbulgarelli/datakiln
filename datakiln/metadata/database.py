@@ -385,8 +385,6 @@ class DatabaseMeta():
             "DB_ISOLATION_LEVEL",
             "READ COMMITTED"
         )
-        db_params["driver"] = env_config("DB_DRIVER", None)
-        db_params["options"] = env_config("DB_OPTIONS", "")
 
         return db_params
 

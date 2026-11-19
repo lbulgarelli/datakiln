@@ -50,6 +50,13 @@ def add_arguments(parser):
     parser.add_argument('--database', metavar="database", type=str,
                         required=True,
                         help='Database to connect to in the source DBMS.')
+    parser.add_argument('--driver', metavar="driver", type=str,
+                        help='Python package that connects to the source '
+                             'DBMS, if not the default one of the dialect.')
+    parser.add_argument('--options', metavar="options", type=str, default="",
+                        help='Options of the connection to the source DBMS, '
+                             'as a query string '
+                             '(TrustServerCertificate=yes&driver=FreeTDS).')
     parser.add_argument('--read-only', action='store_true', default=False,
                         help='Run in read-only mode (no temp tables).')
     parser.add_argument('--parallel', type=int, default=4,
@@ -76,7 +83,9 @@ def run(args):
         "password": args.password,
         "host": args.host,
         "database": args.database,
-        "port": args.port
+        "port": args.port,
+        "driver": args.driver,
+        "options": args.options
     }
 
     # Load all extraction metadata
