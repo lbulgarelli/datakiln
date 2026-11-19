@@ -52,6 +52,7 @@ def run(args):
 
     # Connect to database
     session = Session.create(**db_params)
+    session.create_database()
 
     # Create metadata
     database.create_metadata(session)

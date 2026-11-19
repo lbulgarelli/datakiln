@@ -601,11 +601,19 @@ class Session(SQLAlchemySession):
             pool_pre_ping=True
         )
 
-        # Create database
-        if (
-            dialect not in ("oracle", "mssql")
-            and not database_exists(url_object)
-        ):
-            create_database(url_object)
-
         return Session(bind=engine, autoflush=True)
+
+    def create_database(self):
+        """Creates the database of the session, if it does not exist. An
+        Oracle database is a service that already exists, and its DBA creates
+        it.
+
+        :raises DBAPIError: If the user is not allowed to create it.
+        """
+        url = self.get_bind().url
+        if url.get_backend_name() == "oracle":
+            return
+
+        if not database_exists(url):
+            logger.info("Database '%s': Creating.", url.database)
+            create_database(url)

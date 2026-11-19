@@ -20,6 +20,7 @@ def test_session():
     db_params = DatabaseMeta.load_env(os.getcwd())
     db_params["database"] = "__test"
     session = Session.create(**db_params)
+    session.create_database()
     yield session
 
     # Do not save test changes
