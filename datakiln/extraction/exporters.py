@@ -84,8 +84,7 @@ class MetadataExtractor:
     ) -> Dict:
         """Generate table metadata from DBMS."""
         meta = {
-            # Enforce lower case (SQL Server) - if I don't, table will have upper case name in .json
-            # Not necessary: Fix by using capital for table name in .json
+            # The build names tables in lower case, SQL Server keeps its case
             "name": table.name.lower(),
             "schema": "public",
             "encoding": "utf-8",
@@ -100,8 +99,7 @@ class MetadataExtractor:
                 ]
             }
         }
-        # Enforce lower case (SQL Server) - if I don't, file name will be upper case
-        # In files.py, the metadata needs to be in lower case. Hence enforcing it here makes sense.
+        # The data file is found by this file name, in lower case
         meta_path = meta_dir / f"{table.name.lower()}.json"
         with open(meta_path, "w", encoding="utf-8") as file:
             json.dump(meta, file, indent=4)

@@ -598,7 +598,10 @@ class Session(SQLAlchemySession):
         )
 
         # Create database
-        if dialect not in ("oracle", "mssql") and not database_exists(url_object):
+        if (
+            dialect not in ("oracle", "mssql")
+            and not database_exists(url_object)
+        ):
             create_database(url_object)
 
         return Session(bind=engine, autoflush=True)
