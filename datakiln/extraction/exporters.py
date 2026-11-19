@@ -7,6 +7,7 @@ import gzip
 import logging
 import hashlib
 import threading
+from copy import copy
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -17,8 +18,9 @@ from tenacity import (
     retry_if_exception_type,
     before_sleep_log
 )
-from sqlalchemy import MetaData, Table, Column, Select
+from sqlalchemy import Boolean, MetaData, Table, Column, Select
 from sqlalchemy.dialects import registry
+from sqlalchemy.dialects.mssql import BIT
 from sqlalchemy.exc import SQLAlchemyError
 
 from datakiln.metadata.database import Session
@@ -59,20 +61,24 @@ class MetadataExtractor:
         compile_type: bool = True
     ) -> Dict:
         """Generate column metadata from DBMS."""
-        dialect_obj = registry.load(dialect)
-        type_ = column.type.dialect_impl(dialect_obj())
+        dialect_obj = registry.load(dialect)()
 
-        # remove collation to avoid MSSQL conflict?
-        # or keep it and fix it in build?
-        # sqlalchemy.exc.ProgrammingError: (psycopg2.errors.UndefinedObject) collation "SQL_Latin1_General_CP1_CI_AS" for encoding "UTF8" does not exist
-        # LINE 1: CREATE TABLE public.pat_enc (PAT_ID VARCHAR(18) COLLATE "SQL...
-        if dialect == "postgresql" and hasattr(type_, "collation"): 
-            type_.collation = None 
+        # SQL Server has no adapted type for its bit, which is a boolean
+        sql_type = column.type
+        if isinstance(sql_type, BIT):
+            sql_type = Boolean()
+        type_ = copy(sql_type.dialect_impl(dialect_obj))
+
+        # The collation names are the ones of the source, which the target
+        # does not have
+        if hasattr(type_, "collation"):
+            type_.collation = None
 
         return {
             "name": column.name,
             "dtype": {
-                dialect: type_.compile(dialect=dialect_obj()) if compile_type else type_
+                dialect: type_.compile(dialect=dialect_obj)
+                if compile_type else type_
             }
         }
 
