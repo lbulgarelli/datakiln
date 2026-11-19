@@ -75,7 +75,7 @@ class MetadataExtractor:
             type_.collation = None
 
         return {
-            "name": column.name,
+            "name": column.name.lower(),
             "dtype": {
                 dialect: type_.compile(dialect=dialect_obj)
                 if compile_type else type_
@@ -100,7 +100,7 @@ class MetadataExtractor:
             ],
             "constraints": {
                 "primary_key": [
-                    column.name
+                    column.name.lower()
                     for column in table.primary_key
                 ]
             }
