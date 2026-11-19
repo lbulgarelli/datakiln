@@ -118,11 +118,22 @@ the file itself must exist to build the database.
 | `DB_NAME` | `postgres` | Created if it does not exist. |
 | `DB_DIALECT` | `postgresql` | The DBMS of the database to build. |
 | `DB_ISOLATION_LEVEL` | `READ COMMITTED` | Transaction isolation level of the connection. |
+| `DB_DRIVER` | `psycopg2`, `oracledb` or `pyodbc` | The SQLAlchemy driver of the dialect, for another one (`mssqlpython` needs SQLAlchemy 2.1). |
+| `DB_OPTIONS` | none | Options of the connection, as a query string. |
 
 ```bash
 DB_USER=analyst
 DB_HOST=db.example.org
 DB_NAME=study
+```
+
+A SQL Server database is built with `DB_DIALECT=mssql`. `pyodbc` needs the
+name of the ODBC driver, and the server can ask to trust its certificate:
+
+```bash
+DB_DIALECT=mssql
+DB_USER=DOMAIN\analyst
+DB_OPTIONS=driver=FreeTDS&TrustServerCertificate=yes
 ```
 
 There is no variable for the database password. The connection uses the

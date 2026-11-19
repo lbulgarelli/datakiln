@@ -2,6 +2,7 @@
 Database metadata.
 """
 import logging
+from urllib.parse import parse_qsl
 from pathlib import Path
 from getpass import getuser
 from textwrap import dedent
@@ -31,15 +32,6 @@ DRIVER = {
     "postgresql": "psycopg2",
     "oracle": "oracledb",
     "mssql": "pyodbc"
-}
-# Fix SQL Server connection/driver
-# TODO: add tuple for DRIVER, try mssql-python first, fallout to pyodc
-# UP: https://github.com/microsoft/mssql-python/issues/625
-QUERY = {
-    "mssql": {
-        "driver": "FreeTDS",
-        "TrustServerCertificate": "yes"
-    }
 }
 logger = logging.getLogger(__name__)
 
@@ -393,6 +385,8 @@ class DatabaseMeta():
             "DB_ISOLATION_LEVEL",
             "READ COMMITTED"
         )
+        db_params["driver"] = env_config("DB_DRIVER", None)
+        db_params["options"] = env_config("DB_OPTIONS", "")
 
         return db_params
 
@@ -551,7 +545,9 @@ class Session(SQLAlchemySession):
         database,
         dialect,
         password=None,
-        isolation_level="READ COMMITTED"
+        isolation_level="READ COMMITTED",
+        driver=None,
+        options=""
     ):
         # pylint: disable=too-many-arguments, too-many-positional-arguments
         """Connect to database using SQLAlchemy.
@@ -577,17 +573,25 @@ class Session(SQLAlchemySession):
         :param isolation_level: Transaction isolation level.
         :type isolation_level: str
 
+        :param driver: Python package that connects to the database, if not
+                       the default one of the dialect.
+        :type driver: str
+
+        :param options: Options of the connection, as a query string
+                        (``TrustServerCertificate=yes&driver=FreeTDS``).
+        :type options: str
+
         :return: Database session.
         :rtype: datakiln.metadata.database.Session
         """
         url_object = URL.create(
-            f"{dialect}+{DRIVER[dialect]}",
+            f"{dialect}+{driver or DRIVER[dialect]}",
             username=user,
             password=password,
             host=host,
             database=database,
             port=port,
-            query=QUERY.get(dialect, {})
+            query=dict(parse_qsl(options))
         )
 
         engine = create_engine(
