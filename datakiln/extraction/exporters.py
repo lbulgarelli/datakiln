@@ -45,7 +45,11 @@ class MetadataExtractor:
         """Generate column metadata from DBMS."""
         logger.info("Schema '%s': Retrieving metadata.", schema)
         metadata = MetaData(schema=schema)
-        metadata.reflect(bind=session.bind, only=tables, views=True)
+        metadata.reflect(
+            bind=session.get_bind(),
+            only=lambda name, _: name.lower() in tables,
+            views=True
+        )
         return metadata
 
     @staticmethod
