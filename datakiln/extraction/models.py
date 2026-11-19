@@ -15,7 +15,7 @@ from typing import (
 )
 
 from sqlalchemy import (
-    select, exists, literal, and_, or_, false, text,
+    select, exists, literal, and_, or_, false, text, bindparam,
     Table, MetaData
 )
 
@@ -551,11 +551,15 @@ class FilterConfig:
                     if count > 0:
                         used_params[ref_param] = _coerce(ref_val)
 
+                # The values are in the text of the query, since the number of
+                # parameters of a query is limited (2100 in SQL Server)
+                params = []
+                for name, value in used_params.items():
+                    params.append(bindparam(name, value, literal_execute=True))
+
                 # Append the condition
                 conditions.append(
-                    text(f"{expr} {op} :{param_name}").bindparams(
-                        **used_params
-                    )
+                    text(f"{expr} {op} :{param_name}").bindparams(*params)
                 )
             if conditions:
                 or_blocks.append(and_(*conditions))
