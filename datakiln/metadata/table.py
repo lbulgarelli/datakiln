@@ -129,7 +129,7 @@ class Script(Object):
         return [self.drop_] if self.drop_ else []
 
 
-class TableBase():
+class TableBase:
     """Base metadata for table."""
     # pylint: disable=too-few-public-methods, too-many-instance-attributes
     _row_id = "meta_row_id"

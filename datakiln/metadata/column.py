@@ -4,7 +4,7 @@ Column metadata.
 from textwrap import dedent
 
 
-class ColumnMeta():
+class ColumnMeta:
     """Metadata for column."""
 
     def __init__(self, name, dtype, description=None, required=False,

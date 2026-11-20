@@ -1,10 +1,10 @@
 """
 Dependency graphs for metadata objects.
 """
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import cached_property
 from graphlib import TopologicalSorter
-from typing import Dict, Iterable, List, Optional, Set
 
 import networkx as nx
 
@@ -33,9 +33,9 @@ class DependencyGraph:
     Nodes have a `full_name`, which tells them apart in errors.
     """
 
-    def __init__(self, nodes: List,
+    def __init__(self, nodes: list,
                  keep_unresolved: bool = False,
-                 aliases: Optional[Dict[str, Set]] = None):
+                 aliases: dict[str, set] | None = None):
         """
         :param nodes: Nodes with a `full_name` and what they `requires`.
         :type nodes: list[object]
@@ -50,12 +50,12 @@ class DependencyGraph:
         :type aliases: dict[str, set[object]]
         """
         # By name, which is how what the nodes require is found
-        self.nodes: Dict[str, object] = {}
+        self.nodes: dict[str, object] = {}
         for node in nodes:
             self.nodes[node.full_name] = node
         aliases = aliases or {}
 
-        self.unresolved: Set[Unresolved] = set()
+        self.unresolved: set[Unresolved] = set()
 
         # An arrow goes from what is needed to what needs it
         self.digraph = nx.DiGraph()
@@ -72,7 +72,7 @@ class DependencyGraph:
                     self.unresolved.add(unresolved)
                     self.digraph.add_edge(unresolved, node)
 
-    def dependencies(self, node: object) -> Set:
+    def dependencies(self, node: object) -> set:
         """Nodes that a node needs directly.
 
         :param node: Node of the graph.
@@ -115,7 +115,7 @@ class DependencyGraph:
         sorter.prepare()
         return sorter
 
-    def find(self, names: Iterable[str]) -> Set:
+    def find(self, names: Iterable[str]) -> set:
         """Nodes by name.
 
         :param names: Names of nodes of the graph.
@@ -136,7 +136,7 @@ class DependencyGraph:
             found.add(self.nodes[name])
         return found
 
-    def requirements(self, nodes: Iterable) -> Set:
+    def requirements(self, nodes: Iterable) -> set:
         """The specified nodes, with the nodes they need, directly or
         indirectly. Names that are not nodes are left out.
 
@@ -152,7 +152,7 @@ class DependencyGraph:
             needed |= nx.ancestors(self.digraph, node)
         return needed - self.unresolved
 
-    def affected(self, nodes: Iterable) -> Set:
+    def affected(self, nodes: Iterable) -> set:
         """Nodes that need any of the specified nodes, directly or
         indirectly.
 
@@ -167,7 +167,7 @@ class DependencyGraph:
             affected |= nx.descendants(self.digraph, node)
         return affected
 
-    def sort(self) -> List:
+    def sort(self) -> list:
         """Perform topological sort to determine execution order.
 
         :return: Nodes ordered so that dependencies come first. Dependencies
@@ -190,8 +190,8 @@ class DatabaseGraph(DependencyGraph):
     """Dependency graph for the tables (metadata) and the scripts (derive)
     of a database."""
 
-    def __init__(self, tables: List, scripts: List[ScriptMeta],
-                 external: Optional[List] = None):
+    def __init__(self, tables: list, scripts: list[ScriptMeta],
+                 external: list | None = None):
         """
         :param tables: Table metadata.
         :type tables: list[datakiln.metadata.table.TableMeta]
@@ -207,7 +207,7 @@ class DatabaseGraph(DependencyGraph):
         for table in (external or []) + tables:
             created[table.full_name] = table
 
-        overloads: Dict[str, Set] = {}
+        overloads: dict[str, set] = {}
         for script in scripts:
             # An object can only be created once
             if other := created.get(script.full_name):
@@ -224,7 +224,7 @@ class DatabaseGraph(DependencyGraph):
         super().__init__(list(created.values()), aliases=overloads)
 
     @cached_property
-    def schemas(self) -> Set[str]:
+    def schemas(self) -> set[str]:
         """Schemas of the tables and scripts, in lower case, other than the
         ones of the external objects. A function is in none."""
         schemas = set()
@@ -234,7 +234,7 @@ class DatabaseGraph(DependencyGraph):
         return schemas
 
     @property
-    def tables(self) -> List:
+    def tables(self) -> list:
         """Tables to build, ordered so that referenced tables come first."""
         tables = []
         for node in self.sort():
@@ -243,7 +243,7 @@ class DatabaseGraph(DependencyGraph):
         return tables
 
     @property
-    def scripts(self) -> List[ScriptMeta]:
+    def scripts(self) -> list[ScriptMeta]:
         """Scripts to build, ordered so that the scripts creating the objects
         they use come first."""
         scripts = []

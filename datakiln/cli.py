@@ -2,7 +2,6 @@
 Command line of datakiln, which builds a database from a repository of files.
 """
 from argparse import ArgumentParser
-from typing import List, Optional
 
 from datakiln import (
     build_database,
@@ -60,7 +59,7 @@ def get_parser() -> ArgumentParser:
     return parser
 
 
-def main(args: Optional[List[str]] = None):
+def main(args: list[str] | None = None):
     """Runs the command that was asked for.
 
     :param args: Arguments of the command line. Those of the process by

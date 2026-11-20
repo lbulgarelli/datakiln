@@ -27,7 +27,7 @@ def test_session():
     session.rollback()
 
 
-class TestBuild():
+class TestBuild:
     # pylint: disable=too-few-public-methods
     """
     Test loading functions

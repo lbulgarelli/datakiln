@@ -3,7 +3,6 @@ Data files of the tables.
 """
 from hashlib import md5
 from pathlib import Path
-from typing import List
 
 from dvc.api import DVCFileSystem
 
@@ -47,7 +46,7 @@ class LocalRepo:
     def __init__(self, root_dir: Path):
         self.root_dir = str(root_dir)
 
-    def listdir(self, path: str, dvc_only: bool = False) -> List[LocalFile]:
+    def listdir(self, path: str, dvc_only: bool = False) -> list[LocalFile]:
         # pylint: disable=unused-argument
         """Files and folders, other than the hidden ones and the ones of DVC.
 

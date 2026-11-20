@@ -1,10 +1,10 @@
 """
 Shows the dependency graph of the tables and derive scripts.
 """
+from collections.abc import Iterable
 from html import escape
 from operator import attrgetter
 from pathlib import Path
-from typing import Iterable, List
 
 import networkx as nx
 
@@ -53,7 +53,7 @@ def is_schema(node) -> bool:
     return "." not in node.full_name and "(" not in node.full_name
 
 
-def label(node) -> List[str]:
+def label(node) -> list[str]:
     """Lines to tell a node by: its name, and the file of a script if the
     name does not tell it.
 
@@ -70,7 +70,7 @@ def label(node) -> List[str]:
     return lines
 
 
-def edges(graph: DatabaseGraph, nodes: Iterable) -> List[tuple]:
+def edges(graph: DatabaseGraph, nodes: Iterable) -> list[tuple]:
     """Pairs of two tables or two scripts where the second one needs the
     first. There are none between a table and a script.
 
@@ -104,7 +104,7 @@ def edges(graph: DatabaseGraph, nodes: Iterable) -> List[tuple]:
 
 
 def select(graph: DatabaseGraph, include: Iterable[str] = None,
-           schemas: bool = False) -> List:
+           schemas: bool = False) -> list:
     """Nodes to show, ordered by name: the ones that have an arrow, as the
     others would only be a row of boxes, and the ones asked for.
 
@@ -140,7 +140,7 @@ def select(graph: DatabaseGraph, include: Iterable[str] = None,
     return sorted(connected, key=attrgetter("full_name"))
 
 
-def mermaid(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
+def mermaid(graph: DatabaseGraph, nodes: list, direction: str = "LR") -> str:
     """Graph as a Mermaid flowchart, which GitLab and GitHub draw in a
     Markdown file.
 
@@ -177,7 +177,7 @@ def mermaid(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
     return "\n".join(lines) + "\n"
 
 
-def markdown(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
+def markdown(graph: DatabaseGraph, nodes: list, direction: str = "LR") -> str:
     """Graph as a Markdown document, which GitLab and GitHub draw when it is
     opened.
 
@@ -196,7 +196,7 @@ def markdown(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
     return f"# Dependency graph\n\n```mermaid\n{text}```\n"
 
 
-def html(graph: DatabaseGraph, nodes: List, direction: str = "LR") -> str:
+def html(graph: DatabaseGraph, nodes: list, direction: str = "LR") -> str:
     """Graph as a web page, which any browser draws. The page loads Mermaid
     from the internet.
 

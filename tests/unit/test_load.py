@@ -32,7 +32,7 @@ def database(tmp_path_factory, make_tmp_dir):  # pylint: disable=redefined-outer
     yield DatabaseMeta(test_repo, "__test")
 
 
-class TestBuild():
+class TestBuild:
     """
     Test loading functions
     """

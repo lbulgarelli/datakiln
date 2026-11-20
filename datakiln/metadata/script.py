@@ -4,7 +4,6 @@ SQL script metadata.
 import re
 from hashlib import md5
 from pathlib import Path
-from typing import List, Set, Type, Union
 
 import sqlglot
 from more_itertools import sliding_window
@@ -47,7 +46,7 @@ class ScriptMeta:
     _commands = {TokenType.COMMAND, TokenType.EXECUTE}
 
     def __init__(self, path: Path, sql: str,
-                 dialect: Union[str, Type[Dialect]] = ExtendedPostgres,
+                 dialect: str | type[Dialect] = ExtendedPostgres,
                  external: bool = False):
         """
         :param path: Path of the script.
@@ -70,7 +69,7 @@ class ScriptMeta:
         self.external = external
         self.full_name = ""
         self.drop = ""
-        self.requires: Set[str] = set()
+        self.requires: set[str] = set()
 
         for statement in self._parse(sql):
             if statement is not None:
@@ -82,7 +81,7 @@ class ScriptMeta:
 
     @classmethod
     def from_sql(cls, path: Path, directory: Path,
-                 dialect: Union[str, Type[Dialect]] = ExtendedPostgres,
+                 dialect: str | type[Dialect] = ExtendedPostgres,
                  external: bool = False) -> 'ScriptMeta':
         """Load script metadata from a SQL file.
 
@@ -101,7 +100,7 @@ class ScriptMeta:
         :return: Script metadata.
         :rtype: ScriptMeta
         """
-        with open(path, "r", encoding="utf-8") as file:
+        with open(path, encoding="utf-8") as file:
             return cls(path.relative_to(directory), file.read(), dialect,
                        external=external)
 
@@ -115,7 +114,7 @@ class ScriptMeta:
         """
         return session.get(Script, self.full_name)
 
-    def _parse(self, sql: str) -> List[exp.Expression]:
+    def _parse(self, sql: str) -> list[exp.Expression]:
         """Parse SQL, reporting the syntax that sqlglot cannot parse.
 
         The SQL is read in lowercase, so that all the names are, since the
@@ -127,7 +126,7 @@ class ScriptMeta:
             message = "it has unsupported syntax."
             raise ScriptError(self.path, message) from error
 
-    def _body_names(self, text: str) -> Set[str]:
+    def _body_names(self, text: str) -> set[str]:
         """Returns the objects used in the body of a function: schema.name
         pairs and the names of called functions, and what the strings in it
         need.
@@ -231,7 +230,7 @@ class ScriptMeta:
         self.full_name = f"{table.db}.{table.name}"
         self.requires.add(table.db)
 
-    def _references(self, statement: exp.Expression) -> Set[str]:
+    def _references(self, statement: exp.Expression) -> set[str]:
         """Returns the tables and functions referenced by a statement."""
         names = set()
         ctes = {cte.alias for cte in statement.find_all(exp.CTE)}
@@ -265,7 +264,7 @@ class ScriptMeta:
                 names |= self._text(text.name)
         return names
 
-    def _text(self, text: str) -> Set[str]:
+    def _text(self, text: str) -> set[str]:
         """Returns what text that holds code needs: a query that runs, or
         something that is only code to read. It is read as SQL if it parses
         as a query, and by its tokens if not, with the same rules as the code

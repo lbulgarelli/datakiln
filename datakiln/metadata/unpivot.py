@@ -75,7 +75,7 @@ class UnpivotValueMeta(ColumnMeta):
             self.columns.append(column_meta)
 
 
-class UnpivotMeta():
+class UnpivotMeta:
     """Metadata for unpivoting columns."""
     def __init__(self, alias, target_columns, target_values, **kwargs):
         r"""

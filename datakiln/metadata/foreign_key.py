@@ -23,7 +23,7 @@ class ForeignKeyReference:
     columns: list
 
 
-class ForeignKeyMeta():
+class ForeignKeyMeta:
     """Metadata for foreign key."""
 
     def __init__(self, table, columns, reference, dtypes=None):
