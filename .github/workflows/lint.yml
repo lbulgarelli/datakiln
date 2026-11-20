@@ -24,3 +24,5 @@ jobs:
         run: flake8 datakiln tests
       - name: dlint
         run: flake8 --select=DUO datakiln
+      - name: ruff
+        run: ruff check datakiln tests
