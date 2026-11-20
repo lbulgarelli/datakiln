@@ -30,13 +30,13 @@ def dtype_to_psql(dtype):
     :return: PostgreSQL data type.
     :rtype: str
     """
-    if dtype == object:
+    if pd.api.types.is_object_dtype(dtype):
         return "TEXT"
-    if dtype == int:
+    if pd.api.types.is_integer_dtype(dtype):
         return "INTEGER"
-    if dtype == float:
+    if pd.api.types.is_float_dtype(dtype):
         return "DOUBLE PRECISION"
-    if dtype == bool:
+    if pd.api.types.is_bool_dtype(dtype):
         return "BOOLEAN"
     return None
 
