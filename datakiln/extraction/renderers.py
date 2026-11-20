@@ -3,7 +3,7 @@ SQL rendering strategies for the extraction pipeline.
 """
 import itertools
 from threading import Lock
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 from sqlalchemy import MetaData, Table, and_, literal_column, or_, select
 from sqlalchemy.sql import Select
@@ -89,7 +89,7 @@ class QueryDirector:
     @staticmethod
     def _chunked_queries(
         base_stmt: Select,
-        groups: List[List[List[ClauseElement]]]
+        groups: list[list[list[ClauseElement]]]
     ) -> Select:
         """Decompose primary cohort sets into a chunked SA Select statement.
 

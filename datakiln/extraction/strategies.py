@@ -8,6 +8,7 @@ import os
 import signal
 import threading
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from functools import cached_property
@@ -15,7 +16,7 @@ from itertools import chain
 from pathlib import Path
 from textwrap import dedent
 from threading import RLock
-from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
+from typing import Any
 
 import pandas as pd
 from sqlalchemy import (
@@ -159,7 +160,7 @@ class HashingReader:
 class ExecutionStrategy(ABC):
     """Abstract base class for extraction strategies."""
 
-    def __init__(self, db_params: Dict, directory: Path):
+    def __init__(self, db_params: dict, directory: Path):
         self.db_params = db_params
         self.directory = directory
         self.cohorts = {}
@@ -177,7 +178,7 @@ class ExecutionStrategy(ABC):
             return session.get_bind()
 
     @contextmanager
-    def session(self, bind: Optional[bool] = True) -> Iterator[Session]:
+    def session(self, bind: bool | None = True) -> Iterator[Session]:
         """Returns a managed database session.
 
         If a session is already active for this thread, it is yielded.
@@ -228,12 +229,12 @@ class ExecutionStrategy(ABC):
         filter_config: FilterConfig,
         session: Session,
         task: ExtractMeta
-    ) -> List[Any]:
+    ) -> list[Any]:
         """Determine how to process a filter for this strategy."""
         return [filter_config.to_exists(self)]
 
     @abstractmethod
-    def execute(self, task: ExtractMeta, export_to: Optional[Path] = None):
+    def execute(self, task: ExtractMeta, export_to: Path | None = None):
         """Execute the extraction task."""
 
     @abstractmethod
@@ -280,9 +281,9 @@ class TempTableStrategy(ExecutionStrategy):
     def has_index(
         self,
         session: Session,
-        schema: Optional[str],
+        schema: str | None,
         table: str,
-        columns: List[str]
+        columns: list[str]
     ) -> bool:
         """Evaluate the existence of an index with the specified columns."""
         insp = inspect(session.bind)
@@ -294,8 +295,8 @@ class TempTableStrategy(ExecutionStrategy):
     def ensure_index(
         self,
         session: Session,
-        table_parts: List[str],
-        columns: List[str]
+        table_parts: list[str],
+        columns: list[str]
     ):
         """Create a covering index on the reference table if non-existent."""
         if not columns:
@@ -327,7 +328,7 @@ class TempTableStrategy(ExecutionStrategy):
         filter_config: FilterConfig,
         session: Session,
         task: ExtractMeta
-    ) -> List[Any]:
+    ) -> list[Any]:
         if filter_config.resolved_cohort is not None:
             actual_table = self.cohorts.get(
                 filter_config.resolved_cohort,
@@ -340,7 +341,7 @@ class TempTableStrategy(ExecutionStrategy):
             )
         return super().process_filter(filter_config, session, task)
 
-    def execute(self, task: ExtractMeta, export_to: Optional[Path] = None):
+    def execute(self, task: ExtractMeta, export_to: Path | None = None):
         # pylint: disable=too-many-locals
         logger.info("Table '%s': Extracting.", task.full_name)
 
@@ -580,7 +581,7 @@ class JoinChain:
             onclause = and_(*on_clauses) if on_clauses else text("1=1")
             self._from_clause = self._from_clause.join(sa_table, onclause)
 
-    def execute(self, chunk: List, session) -> List:
+    def execute(self, chunk: list, session) -> list:
         """Execute a seed chunk against the built chain.
 
         :param chunk: Batch of seed tuples to look up.
@@ -630,7 +631,7 @@ class StreamStrategy(ExecutionStrategy):
         filter_config: FilterConfig,
         session: Session,
         task: ExtractMeta
-    ) -> List[Any]:
+    ) -> list[Any]:
         if filter_config.resolved_cohort and not filter_config.is_sql_cohort:
             cohort_data = self.get_cohort_set(filter_config, task=task)
             return [
@@ -639,7 +640,7 @@ class StreamStrategy(ExecutionStrategy):
             ]
         return super().process_filter(filter_config, session, task)
 
-    def execute(self, task: ExtractMeta, export_to: Optional[Path] = None):
+    def execute(self, task: ExtractMeta, export_to: Path | None = None):
         """Execute extraction by streaming and filtering in memory."""
         target_dir = export_to or self.tmp_dir
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -697,7 +698,7 @@ class StreamStrategy(ExecutionStrategy):
         self,
         filter_config: FilterConfig,
         task: 'ExtractMeta'
-    ) -> List[Tuple[str, ...]]:
+    ) -> list[tuple[str, ...]]:
         """Load cohort data into memory.
 
         :param filter_config: Filter configuration.
@@ -733,7 +734,7 @@ class StreamStrategy(ExecutionStrategy):
         self,
         filter_config: FilterConfig,
         chunk_size: int = 10000
-    ) -> Iterator[List[Tuple[str, ...]]]:
+    ) -> Iterator[list[tuple[str, ...]]]:
         # pylint: disable=too-many-locals
         """Fetch the initial set of IDs from the local cohort table or CSV."""
         fetch_cols = filter_config.cohort_columns
@@ -878,7 +879,7 @@ class ParallelExecutor:
 
     def _run_task(
         self,
-        node: Union[ExtractMeta, Unresolved],
+        node: ExtractMeta | Unresolved,
         data_dir: Path
     ):
         """Execute a task (table extraction or cohort initialization)."""
@@ -896,7 +897,7 @@ class ParallelExecutor:
             else:
                 self.strategy.get_cohort(node.full_name)
 
-    def _on_task_complete(self, node: Union[ExtractMeta, Unresolved]):
+    def _on_task_complete(self, node: ExtractMeta | Unresolved):
         """Perform cleanup for dependencies no longer needed."""
         to_drop_cohorts = []
         to_drop = []

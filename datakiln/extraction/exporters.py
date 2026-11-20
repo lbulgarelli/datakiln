@@ -9,7 +9,6 @@ import logging
 import threading
 from copy import copy
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from sqlalchemy import Boolean, Column, MetaData, Select, Table
 from sqlalchemy.dialects import registry
@@ -41,7 +40,7 @@ class MetadataExtractor:
     def get_metadata(
         session: Session,
         schema: str,
-        tables: List[str]
+        tables: list[str]
     ) -> MetaData:
         """Generate column metadata from DBMS."""
         logger.info("Schema '%s': Retrieving metadata.", schema)
@@ -58,7 +57,7 @@ class MetadataExtractor:
         column: Column,
         dialect: str = None,
         compile_type: bool = True
-    ) -> Dict:
+    ) -> dict:
         """Generate column metadata from DBMS."""
         dialect_obj = registry.load(dialect)()
 
@@ -86,7 +85,7 @@ class MetadataExtractor:
         meta_dir: Path,
         table: Table,
         dialect: str = None
-    ) -> Dict:
+    ) -> dict:
         """Generate table metadata from DBMS."""
         meta = {
             # The build names tables in lower case, SQL Server keeps its case
@@ -144,9 +143,9 @@ class DataExporter:
         query: Select,
         export_path: Path,
         table_name: str = "unknown",
-        insert_to: Optional[Table] = None,
+        insert_to: Table | None = None,
         chunk_size: int = 10000,
-        abort: Optional[threading.Event] = None
+        abort: threading.Event | None = None
     ) -> str:
         # pylint: disable=too-many-locals, too-many-arguments
         # pylint: disable=too-many-positional-arguments

@@ -33,7 +33,7 @@ DRIVER = {
 logger = logging.getLogger(__name__)
 
 
-class DatabaseMeta():
+class DatabaseMeta:
     """Database metadata."""
 
     def __init__(self, directory, name):
@@ -201,7 +201,7 @@ class DatabaseMeta():
                         file_name.relative_to(self.directory))
 
             # Load file
-            with open(file_name, "r", encoding="utf-8") as file:
+            with open(file_name, encoding="utf-8") as file:
                 sql = file.read()
 
             # Execute query

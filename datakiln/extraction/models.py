@@ -4,6 +4,7 @@ Configuration domain models and task graphs for DBMS extraction pipeline.
 import json
 import math
 import re
+from collections.abc import Iterable, Iterator
 from datetime import datetime
 from functools import cached_property
 from itertools import repeat
@@ -11,14 +12,6 @@ from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Dict,
-    Iterable,
-    Iterator,
-    List,
-    Optional,
-    Set,
-    Tuple,
-    Union,
 )
 from uuid import uuid4
 
@@ -64,7 +57,7 @@ def alias_column(column: str, default: str) -> str:
     return f"{default}.{column}"
 
 
-def get_table(name: str, alias: Optional[str] = None) -> Any:
+def get_table(name: str, alias: str | None = None) -> Any:
     """Helper to create a Table object, resolving schema-qualification.
 
     :param name: Table name (potentially schema-qualified).
@@ -139,11 +132,11 @@ class ReferenceConfig:
 
     def __init__(
         self,
-        columns: List[str],
-        schema: Optional[str] = None,
-        table: Optional[str] = None,
-        operators: Optional[List[str]] = None,
-        alias: Optional[str] = "ref"
+        columns: list[str],
+        schema: str | None = None,
+        table: str | None = None,
+        operators: list[str] | None = None,
+        alias: str | None = "ref"
     ):
         # pylint: disable=too-many-arguments, too-many-positional-arguments
         self.schema = schema
@@ -160,7 +153,7 @@ class ReferenceConfig:
         return self.table or ""
 
     @cached_property
-    def patterns(self) -> List[Any]:
+    def patterns(self) -> list[Any]:
         """Precompiled regex patterns for reference columns."""
         pattern_list = []
         for column in self.columns:
@@ -189,7 +182,7 @@ class ColumnPair:
         return col.split(".")[-1]
 
     @staticmethod
-    def extract_columns(expr: str, alias: str) -> List[str]:
+    def extract_columns(expr: str, alias: str) -> list[str]:
         """Extract all column names associated with an alias.
 
         :param expr: SQL column expression
@@ -325,8 +318,8 @@ class JoinConfig:
 
     def __init__(
         self,
-        columns: List[str],
-        reference: Dict[str, Any],
+        columns: list[str],
+        reference: dict[str, Any],
         reference_alias: str = "ref"
     ):
         self.reference_alias = reference_alias
@@ -341,7 +334,7 @@ class JoinConfig:
             ))
 
     @property
-    def columns(self) -> List[str]:
+    def columns(self) -> list[str]:
         """Left-side column references, other than the constants."""
         columns = []
         for pair in self.pairs:
@@ -361,7 +354,7 @@ class JoinConfig:
         """Pairs that join two remote aliased columns."""
         return (p for p in self.pairs if isinstance(p, CrossPair))
 
-    def to_join(self, cohorts: Dict[str, str]):
+    def to_join(self, cohorts: dict[str, str]):
         """Return the resolved table name to join against.
 
         Prefers the temporary table created during this run if it exists,
@@ -408,10 +401,10 @@ class FilterConfig:
 
     def __init__(
         self,
-        columns: List[str],
-        reference: Dict[str, Any],
-        cohort: Optional[str] = None,
-        join: Optional[List[Dict[str, Any]]] = None
+        columns: list[str],
+        reference: dict[str, Any],
+        cohort: str | None = None,
+        join: list[dict[str, Any]] | None = None
     ):
         self.columns = [alias_column(c, "src") for c in columns]
         self.reference = ReferenceConfig(**reference)
@@ -436,7 +429,7 @@ class FilterConfig:
         return bool(self.cohort and self.cohort.endswith(".sql"))
 
     @property
-    def resolved_cohort(self) -> Optional[str]:
+    def resolved_cohort(self) -> str | None:
         """Return the resolved cohort table name."""
         if self.cohort:
             return self.cohort
@@ -445,7 +438,7 @@ class FilterConfig:
         return None
 
     @property
-    def cohort_columns(self) -> List[str]:
+    def cohort_columns(self) -> list[str]:
         """Return the target columns to fetch from the cohort table."""
         # Extract seed columns from joins
         columns = {}
@@ -518,7 +511,7 @@ class FilterConfig:
             .where(and_(*conditions))
         )
 
-    def to_where(self, values: List[Tuple]) -> Any:
+    def to_where(self, values: list[tuple]) -> Any:
         # pylint: disable=too-many-locals
         """Generate a SQLAlchemy WHERE clause from pre-fetched cohort data.
 
@@ -590,7 +583,7 @@ class ExtractMeta:
         self,
         table: str,
         schema: str,
-        filters: List[Union[Dict, List[Dict]]] = None,
+        filters: list[dict | list[dict]] = None,
         encoding: str = "utf-8",
         chunk_size: int = 10000,
         **kwargs
@@ -639,7 +632,7 @@ class ExtractMeta:
         return f"tmp_{self.table}_{UUID}"
 
     @property
-    def requires(self) -> Set[str]:
+    def requires(self) -> set[str]:
         """Retrieve dependencies from filters.
 
         :return: Set of dependency task names.
@@ -690,7 +683,7 @@ class ExtractGraph(DependencyGraph):
     """
 
     def __init__(self, tasks: Iterable[ExtractMeta],
-                 export: Optional[Set[ExtractMeta]] = None):
+                 export: set[ExtractMeta] | None = None):
         """
         :param tasks: Extraction tasks.
         :type tasks: Iterable[ExtractMeta]
@@ -703,8 +696,8 @@ class ExtractGraph(DependencyGraph):
         self.export = set(tasks) if export is None else export
 
     @classmethod
-    def select(cls, tasks: List[ExtractMeta],
-               include: Optional[List[str]] = None) -> 'ExtractGraph':
+    def select(cls, tasks: list[ExtractMeta],
+               include: list[str] | None = None) -> 'ExtractGraph':
         """Graph of the tasks to export, and the tasks they need.
 
         :param tasks: Extraction tasks.
@@ -731,6 +724,6 @@ class ExtractGraph(DependencyGraph):
         return cls(graph.requirements(export), export)
 
     @property
-    def tasks(self) -> Dict[str, ExtractMeta]:
+    def tasks(self) -> dict[str, ExtractMeta]:
         """Extraction tasks by name."""
         return self.nodes
