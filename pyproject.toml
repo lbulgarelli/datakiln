@@ -66,6 +66,7 @@ lint = [
     "flake8>=7.0",
     "dlint>=0.14",
     "pylint>=3.0",
+    "ruff>=0.15",
 ]
 docs = [
     "sphinx>=7.2",
@@ -85,3 +86,10 @@ include = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["datakiln"]
+
+[tool.ruff]
+line-length = 79
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
