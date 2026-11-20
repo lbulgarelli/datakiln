@@ -2,29 +2,28 @@
 Data and metadata export logic for the extraction pipeline.
 """
 import csv
-import json
 import gzip
-import logging
 import hashlib
+import json
+import logging
 import threading
 from copy import copy
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_fixed,
-    retry_if_exception_type,
-    before_sleep_log
-)
-from sqlalchemy import Boolean, MetaData, Table, Column, Select
+from sqlalchemy import Boolean, Column, MetaData, Select, Table
 from sqlalchemy.dialects import registry
 from sqlalchemy.dialects.mssql import BIT
 from sqlalchemy.exc import SQLAlchemyError
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_fixed,
+)
 
 from datakiln.metadata.database import Session
-
 
 logger = logging.getLogger(__name__)
 db_retry = retry(

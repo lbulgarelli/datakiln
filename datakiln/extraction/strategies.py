@@ -1,42 +1,56 @@
 """
 Execution strategies and parallel orchestration for the extraction pipeline.
 """
+import hashlib
 import json
 import logging
-import hashlib
-import threading
-import signal
 import os
+import signal
+import threading
+from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
+from functools import cached_property
 from itertools import chain
 from pathlib import Path
 from textwrap import dedent
-from abc import ABC, abstractmethod
-from contextlib import contextmanager
-from functools import cached_property
 from threading import RLock
-from typing import List, Dict, Optional, Iterator, Any, Tuple, Union
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 
 import pandas as pd
 from sqlalchemy import (
-    MetaData, Table, Column, select, literal, and_, text,
-    values, column as sa_column, bindparam, String, Float,
-    inspect, Index
+    Column,
+    Float,
+    Index,
+    MetaData,
+    String,
+    Table,
+    and_,
+    bindparam,
+    inspect,
+    literal,
+    select,
+    text,
+    values,
 )
-from sqlalchemy.types import UserDefinedType
-from sqlalchemy.schema import DropTable
+from sqlalchemy import column as sa_column
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.sql import Select
 from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.schema import DropTable
+from sqlalchemy.sql import Select
 from sqlalchemy.sql.selectable import Values
+from sqlalchemy.types import UserDefinedType
 
-from datakiln.metadata.database import DatabaseMeta, Session
-from datakiln.metadata.graph import Unresolved
+from datakiln.extraction.exporters import DataExporter, MetadataExtractor
 from datakiln.extraction.models import (
-    UUID, ExtractMeta, ExtractGraph, FilterConfig
+    UUID,
+    ExtractGraph,
+    ExtractMeta,
+    FilterConfig,
 )
 from datakiln.extraction.renderers import QueryDirector
-from datakiln.extraction.exporters import MetadataExtractor, DataExporter
+from datakiln.metadata.database import DatabaseMeta, Session
+from datakiln.metadata.graph import Unresolved
 
 logger = logging.getLogger(__name__)
 

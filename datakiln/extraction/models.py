@@ -1,22 +1,38 @@
 """
 Configuration domain models and task graphs for DBMS extraction pipeline.
 """
-import re
-import math
 import json
-from uuid import uuid4
+import math
+import re
 from datetime import datetime
-from pathlib import Path
-from itertools import repeat
 from functools import cached_property
+from itertools import repeat
+from pathlib import Path
 from typing import (
-    List, Dict, Set, Optional, Any, Tuple, Iterator, Iterable, Union,
-    TYPE_CHECKING
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    Union,
 )
+from uuid import uuid4
 
 from sqlalchemy import (
-    select, exists, literal, and_, or_, false, text, bindparam,
-    Table, MetaData
+    MetaData,
+    Table,
+    and_,
+    bindparam,
+    exists,
+    false,
+    literal,
+    or_,
+    select,
+    text,
 )
 
 from datakiln.metadata.graph import DependencyGraph

@@ -5,16 +5,15 @@ import logging
 from getpass import getuser
 from pathlib import Path
 
-from datakiln.metadata.database import DatabaseMeta, DRIVER
-from datakiln.arguments import (
-    add_directory, add_export, add_include, add_log
-)
-from datakiln.extraction.models import ExtractMeta, ExtractGraph
-from datakiln.extraction.strategies import (
-    StreamStrategy, TempTableStrategy, ParallelExecutor
-)
+from datakiln.arguments import add_directory, add_export, add_include, add_log
 from datakiln.extraction.exporters import MetadataExtractor
-
+from datakiln.extraction.models import ExtractGraph, ExtractMeta
+from datakiln.extraction.strategies import (
+    ParallelExecutor,
+    StreamStrategy,
+    TempTableStrategy,
+)
+from datakiln.metadata.database import DRIVER, DatabaseMeta
 
 logger = logging.getLogger(__name__)
 

@@ -2,31 +2,28 @@
 Database metadata.
 """
 import logging
-from urllib.parse import parse_qsl
-from pathlib import Path
-from getpass import getuser
-from textwrap import dedent
 from functools import cached_property
+from getpass import getuser
+from pathlib import Path
+from textwrap import dedent
+from urllib.parse import parse_qsl
 
 import sqlglot
 import sqlparse
-from sqlglot import exp
-from sqlalchemy.orm.session import Session as SQLAlchemySession
-from sqlalchemy import (
-    create_engine, inspect, select, text, URL, event, Engine
-)
-from sqlalchemy.exc import DBAPIError, ProgrammingError
-from sqlalchemy.schema import CreateSchema
 from decouple import Config, RepositoryEmpty, RepositoryEnv
+from sqlalchemy import URL, Engine, create_engine, event, inspect, select, text
+from sqlalchemy.exc import DBAPIError, ProgrammingError
+from sqlalchemy.orm.session import Session as SQLAlchemySession
+from sqlalchemy.schema import CreateSchema
 from sqlalchemy_utils import create_database, database_exists
+from sqlglot import exp
 
-from datakiln.metadata.table import TableMeta, Object, Script, Base
 from datakiln.metadata.dialect import DIALECT_MAP
 from datakiln.metadata.files import DataFiles
 from datakiln.metadata.graph import DatabaseGraph
 from datakiln.metadata.migrations import upgrade
 from datakiln.metadata.script import ScriptMeta
-
+from datakiln.metadata.table import Base, Object, Script, TableMeta
 
 DRIVER = {
     "postgresql": "psycopg2",

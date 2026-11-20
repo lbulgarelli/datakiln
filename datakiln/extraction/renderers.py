@@ -1,18 +1,16 @@
 """
 SQL rendering strategies for the extraction pipeline.
 """
-from threading import Lock
-from typing import List, TYPE_CHECKING
 import itertools
+from threading import Lock
+from typing import TYPE_CHECKING, List
 
-from sqlalchemy import (
-    select, Table, MetaData, literal_column, and_, or_
-)
+from sqlalchemy import MetaData, Table, and_, literal_column, or_, select
 from sqlalchemy.sql import Select
 from sqlalchemy.sql.elements import ClauseElement
 
-from datakiln.metadata.database import Session
 from datakiln.extraction.models import ExtractMeta
+from datakiln.metadata.database import Session
 
 if TYPE_CHECKING:
     from datakiln.extraction.strategies import ExecutionStrategy
