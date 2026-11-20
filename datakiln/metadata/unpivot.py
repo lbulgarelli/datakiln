@@ -2,8 +2,8 @@
 Unpivot metadata.
 """
 import re
-from textwrap import dedent
 from collections import defaultdict
+from textwrap import dedent
 
 from datakiln.metadata.column import ColumnMeta
 

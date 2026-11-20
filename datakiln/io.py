@@ -2,7 +2,7 @@
 Helpers to read multiple data file extensions.
 """
 import warnings
-from io import BytesIO, TextIOWrapper, IOBase  # pylint: disable=import-self
+from io import BytesIO, IOBase, TextIOWrapper  # pylint: disable=import-self
 
 import pandas as pd
 

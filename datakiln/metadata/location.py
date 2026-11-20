@@ -1,17 +1,16 @@
 """
 File system location metadata.
 """
-import re
 import logging
+import re
 from pathlib import Path
 from stat import S_ISDIR
 from textwrap import dedent
 
 from decouple import config
-from paramiko import SSHClient, AutoAddPolicy
+from paramiko import AutoAddPolicy, SSHClient
 
 from datakiln.metadata.column import ColumnMeta
-
 
 logger = logging.getLogger(__name__)
 

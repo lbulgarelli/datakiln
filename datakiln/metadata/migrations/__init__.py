@@ -9,7 +9,6 @@ from sqlalchemy import inspect
 
 from datakiln.metadata.table import Base
 
-
 # The version of databases built before there were migrations
 BASELINE = "0001"
 

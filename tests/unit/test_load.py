@@ -5,14 +5,13 @@ Test
 from pathlib import Path
 from shutil import copytree
 
-import pytest
 import pandas as pd
-from sqlalchemy import inspect
+import pytest
 from dvc.testing.fixtures import make_tmp_dir  # pylint: disable=unused-import # noqa: E501 F401
+from sqlalchemy import inspect
 
-from datakiln.test import test_session  # pylint: disable=unused-import # noqa: E501 F401
 from datakiln.metadata.database import DatabaseMeta
-
+from datakiln.test import test_session  # pylint: disable=unused-import # noqa: E501 F401
 
 TEST_DIR = Path("tests").absolute()
 

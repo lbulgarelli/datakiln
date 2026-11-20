@@ -2,18 +2,15 @@
 Builds table metadata from redcap api
 """
 
-import time
 import json
 import logging
 import re
+import time
 from pathlib import Path
 
 from redcap import Project  # pylint: disable=import-error
 
-from datakiln.arguments import (
-    add_directory, add_export, add_include, add_log
-)
-
+from datakiln.arguments import add_directory, add_export, add_include, add_log
 
 logger = logging.getLogger(__name__)
 

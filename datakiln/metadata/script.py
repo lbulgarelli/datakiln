@@ -17,7 +17,6 @@ from sqlglot.tokens import Token, TokenType
 from datakiln.metadata.dialect import ExtendedPostgres
 from datakiln.metadata.table import Script
 
-
 PUBLIC = "public"
 FUNCTION_SCHEMA = (
     "functions and procedures cannot specify a schema, they use the default "

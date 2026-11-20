@@ -5,10 +5,13 @@ from argparse import ArgumentParser
 from typing import List, Optional
 
 from datakiln import (
-    build_database, build_dbms, build_metadata, build_redcap, show_graph
+    build_database,
+    build_dbms,
+    build_metadata,
+    build_redcap,
+    show_graph,
 )
 from datakiln.arguments import setup_logging
-
 
 # Name of each command, with what runs it, what it does and the log it writes
 COMMANDS = [

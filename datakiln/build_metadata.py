@@ -3,15 +3,14 @@ Generate metadata from data file.
 """
 import json
 import logging
-from pathlib import Path
-from itertools import starmap
 from functools import partial
+from itertools import starmap
+from pathlib import Path
 
 import pandas as pd
 from slugify import slugify
 
 from datakiln.arguments import add_directory, add_log
-
 
 logger = logging.getLogger(__name__)
 

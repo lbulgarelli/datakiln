@@ -3,12 +3,12 @@ Dependency graphs for metadata objects.
 """
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Dict, Iterable, List, Optional, Set
 from graphlib import TopologicalSorter
+from typing import Dict, Iterable, List, Optional, Set
 
 import networkx as nx
 
-from datakiln.metadata.script import ScriptMeta, ScriptError
+from datakiln.metadata.script import ScriptError, ScriptMeta
 from datakiln.metadata.table import TableMeta
 
 

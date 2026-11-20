@@ -1,35 +1,29 @@
 """
 Table metadata.
 """
-import re
 import csv
-import json
 import gzip
+import json
 import logging
-from hashlib import md5
-from pathlib import Path
+import re
 from copy import deepcopy
-from textwrap import dedent
-from itertools import chain
 from functools import partial
+from hashlib import md5
+from itertools import chain
+from pathlib import Path
+from textwrap import dedent
 
 from pandas._libs.parsers import STR_NA_VALUES  # pylint: disable=no-name-in-module # noqa: E501
-from sqlalchemy import MetaData as SQLAlchemyMetadata
 from sqlalchemy import ForeignKey
-from sqlalchemy.orm import (
-    DeclarativeBase,
-    Mapped,
-    mapped_column,
-    relationship
-)
+from sqlalchemy import MetaData as SQLAlchemyMetadata
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from datakiln.io import open_excel, NullStripper
+from datakiln.io import NullStripper, open_excel
 from datakiln.metadata.column import ColumnMeta
 from datakiln.metadata.files import LocalRepo
-from datakiln.metadata.location import SSHLocation
 from datakiln.metadata.foreign_key import ForeignKeyMeta
+from datakiln.metadata.location import SSHLocation
 from datakiln.metadata.unpivot import UnpivotMeta
-
 
 logger = logging.getLogger(__name__)
 

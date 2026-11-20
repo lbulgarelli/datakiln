@@ -6,7 +6,6 @@ from alembic import context
 
 from datakiln.metadata.table import Base
 
-
 context.configure(
     connection=context.config.attributes["connection"],
     target_metadata=Base.metadata,

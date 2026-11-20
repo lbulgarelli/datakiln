@@ -13,7 +13,6 @@ from datakiln.metadata.database import DatabaseMeta
 from datakiln.metadata.graph import DatabaseGraph
 from datakiln.metadata.table import TableMeta
 
-
 TABLE_STYLE = "fill:#e8f1fb,stroke:#4a78b5,color:#1f3b5c"
 SCRIPT_STYLE = "fill:#fdf1dc,stroke:#c98a2b,color:#5c3d0e"
 

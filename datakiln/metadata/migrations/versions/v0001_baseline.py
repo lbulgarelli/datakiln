@@ -6,9 +6,8 @@ Revision ID: 0001
 Revises:
 """
 # pylint: disable=no-member, invalid-name, duplicate-code
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision = "0001"
 down_revision = None

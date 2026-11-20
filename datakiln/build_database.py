@@ -7,7 +7,6 @@ from pathlib import Path
 from datakiln.arguments import add_directory, add_include, add_log
 from datakiln.metadata.database import DatabaseMeta, Session
 
-
 logger = logging.getLogger(__name__)
 
 
