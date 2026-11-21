@@ -2,10 +2,8 @@
 Configuration domain models and task graphs for DBMS extraction pipeline.
 """
 import json
-import math
 import re
 from collections.abc import Iterable, Iterator
-from datetime import datetime
 from functools import cached_property
 from itertools import repeat
 from pathlib import Path
@@ -17,16 +15,20 @@ from uuid import uuid4
 
 from sqlalchemy import (
     MetaData,
+    String,
     Table,
     and_,
-    bindparam,
     exists,
     false,
     literal,
+    literal_column,
     or_,
     select,
     text,
+    union_all,
 )
+from sqlalchemy import column as sa_column
+from sqlalchemy import values as sa_values
 
 from datakiln.metadata.graph import DependencyGraph
 
@@ -75,39 +77,6 @@ def get_table(name: str, alias: str | None = None) -> Any:
     else:
         tbl = Table(name, MetaData())
     return tbl.alias(alias) if alias else tbl
-
-
-def _coerce(value: Any) -> Any:
-    """Coerce value to datetime if it's an ISO formatted string.
-
-    :param value: Input value to coerce.
-    :type value: Any
-
-    :return: Coerced datetime object or the original value.
-    :rtype: Any
-    """
-    if isinstance(value, str) and '-' in value:
-        try:
-            return datetime.fromisoformat(value)
-        except ValueError:
-            pass
-    return value
-
-
-def _is_null(v: Any) -> bool:
-    """Check if a value is None or NaN (Not a Number).
-
-    :param v: Value to inspect.
-    :type v: Any
-
-    :return: True if the value is None or a float NaN, False otherwise.
-    :rtype: bool
-    """
-    if v is None:
-        return True
-    if isinstance(v, float) and math.isnan(v):
-        return True
-    return False
 
 
 class ReferenceConfig:
@@ -453,6 +422,19 @@ class FilterConfig:
                 columns[col_name] = None
         return list(columns)
 
+    @cached_property
+    def seed_positions(self) -> dict[int, int]:
+        """Return the position in the cohort data of each reference column
+        that is a column of the cohort, by the position of the reference
+        column. The others are constants, such as a list of values."""
+        # A reference column that names a column of the cohort takes the next
+        # position of the cohort data
+        positions = {}
+        for ref_idx, ref_col in enumerate(self.reference.columns):
+            if ColumnPair.extract_columns(ref_col, self.reference.alias):
+                positions[ref_idx] = len(positions)
+        return positions
+
     def to_exists(
         self,
         strategy: 'ExecutionStrategy'
@@ -511,69 +493,151 @@ class FilterConfig:
             .where(and_(*conditions))
         )
 
-    def to_where(self, values: list[tuple]) -> Any:
-        # pylint: disable=too-many-locals
+    def candidate_types(
+        self,
+        table_types: dict[str, Any],
+        cohort_types: dict[str, Any]
+    ) -> tuple[list[Any], list[Any]]:
+        """The types the columns of the cohort data may have, to be tried in
+        order: the types of the columns of the table, and the ones of the
+        cohort. They only differ in the columns compared to an expression.
+
+        :param table_types: Types of the columns of the table, by lower case
+                            name.
+        :type table_types: dict[str, TypeEngine]
+
+        :param cohort_types: Types of the columns of the cohort, by lower case
+                             name.
+        :type cohort_types: dict[str, TypeEngine]
+
+        :return: The types of each column, for each candidate.
+        :rtype: tuple[list[TypeEngine], list[TypeEngine]]
+        """
+        by_table, by_cohort = [], []
+        for ref_idx, (col, ref_col) in enumerate(zip(
+            self.columns,
+            self.reference.columns
+        )):
+            # A constant is not in the cohort data
+            if ref_idx not in self.seed_positions:
+                continue
+
+            # The type of the first column of the table in the column
+            names = ColumnPair.extract_columns(col.lower(), "src")
+            table_type = String()
+            for name in names:
+                if name in table_types:
+                    table_type = table_types[name]
+                    break
+
+            # A column of the table is compared as it is, so that the
+            # database does not convert it, which would stop it from using
+            # its indexes. The type of an expression depends on it, so it
+            # may be the one of the cohort
+            ref_name = ColumnPair.bare(ref_col).lower()
+            cohort_type = cohort_types.get(ref_name, table_type)
+            if names and col.lower() == f"src.{names[0]}":
+                cohort_type = table_type
+
+            by_table.append(table_type)
+            by_cohort.append(cohort_type)
+        return by_table, by_cohort
+
+    def seed_expression(self, col: str) -> str:
+        """Replace any reference column in a column of the filter with its
+        corresponding column of the cohort data.
+
+        :param col: Column of the filter, or an expression.
+        :type col: str
+
+        :return: The column, in terms of the columns of the cohort data.
+        :rtype: str
+        """
+        # A reference column of the cohort is a column of the cohort data,
+        # which is named "seed"
+        for ref_idx, pattern in enumerate(self.reference.patterns):
+            if ref_idx in self.seed_positions:
+                col = pattern.sub(f"seed.c{self.seed_positions[ref_idx]}", col)
+        return col
+
+    def to_where(
+        self,
+        values: list[tuple],
+        types: list[Any],
+        chunk_size: int | None = None
+    ) -> Any:
         """Generate a SQLAlchemy WHERE clause from pre-fetched cohort data.
+
+        The cohort data is a VALUES clause, which each dialect sends to the
+        database as one parameter.
 
         :param values: List of value tuples from the resolved cohort.
         :type values: list[tuple]
 
+        :param types: Type of each column of the cohort data.
+        :type types: list[TypeEngine]
+
+        :param chunk_size: Number of seeds of each parameter. All the seeds
+                           in one by default.
+        :type chunk_size: int
+
         :return: SA ClauseElement.
         :rtype: ClauseElement
         """
-
+        # Without any seed, nothing matches
         if not values:
             return false()
 
-        or_blocks = []
-        for row_idx, values_set in enumerate(values):
-            conditions = []
-            for col_idx, (col, op, val) in enumerate(zip(
-                self.columns,
-                self.reference.operators,
-                values_set
-            )):
-                if _is_null(val):
-                    continue
+        # The cohort data is a VALUES clause, with a typed column for each
+        # column of the cohort
+        columns = []
+        for col_idx, type_ in enumerate(types):
+            columns.append(sa_column(f"c{col_idx}", type_))
 
-                # Set the first parameter and bind
-                expr = col
-                param_name = f"p_{row_idx}_{col_idx}"
-                used_params = {param_name: _coerce(val)}
+        # A parameter for each group of seeds, which are the rows of one
+        # table
+        size = chunk_size or len(values)
+        chunks = []
+        for i in range(0, len(values), size):
+            chunk = sa_values(*columns, name="seed").data(values[i:i + size])
+            chunks.append(chunk)
 
-                # Replace any reference column in `col`
-                # with its corresponding bind parameter
-                for ref_idx, ref_col in enumerate(self.reference.columns):
-                    # Skip references that are not present in the expression
-                    if ref_col not in expr:
-                        continue
+        # The groups are one row source, which the database reads as one
+        # semi-join
+        seeds = chunks[0]
+        if len(chunks) > 1:
+            seeds = union_all(*[select(chunk) for chunk in chunks])
+            seeds = seeds.subquery("seed")
 
-                    # Skip references that are NULL
-                    ref_val = values_set[ref_idx]
-                    if _is_null(ref_val):
-                        continue
+        # Each column of the filter is compared to its column of the cohort
+        # data, or to its constant
+        conditions = []
+        for ref_idx, (col, op, ref_col) in enumerate(zip(
+            self.columns,
+            self.reference.operators,
+            self.reference.columns
+        )):
+            # A constant, such as a list of values, is compared as it is
+            if ref_idx not in self.seed_positions:
+                conditions.append(text(f"{col} {op} {ref_col}"))
+                continue
 
-                    # Replace the reference column with a bind parameter
-                    pattern = self.reference.patterns[ref_idx]
-                    ref_param = f"p_{row_idx}_{ref_idx}"
-                    expr, count = pattern.subn(f":{ref_param}", expr)
-                    if count > 0:
-                        used_params[ref_param] = _coerce(ref_val)
+            # The column of the filter, with its reference columns replaced,
+            # is compared to its column of the cohort data
+            pos = self.seed_positions[ref_idx]
+            seed = seeds.c[f"c{pos}"]
+            condition = literal_column(self.seed_expression(col)).op(op)(seed)
 
-                # The values are in the text of the query, since the number of
-                # parameters of a query is limited (2100 in SQL Server)
-                params = []
-                for name, value in used_params.items():
-                    params.append(bindparam(name, value, literal_execute=True))
+            # A row without a value for the column does not restrict it
+            if any(row[pos] is None for row in values):
+                condition = or_(seed.is_(None), condition)
+            conditions.append(condition)
 
-                # Append the condition
-                conditions.append(
-                    text(f"{expr} {op} :{param_name}").bindparams(*params)
-                )
-            if conditions:
-                or_blocks.append(and_(*conditions))
-
-        return or_(*or_blocks) if or_blocks else false()
+        # A row of the table matches if any of the rows of the cohort data
+        # meets all the conditions
+        return exists(
+            select(literal(1)).select_from(seeds).where(and_(*conditions))
+        )
 
 
 class ExtractMeta:

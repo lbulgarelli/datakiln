@@ -31,7 +31,7 @@ from sqlalchemy import (
     values,
 )
 from sqlalchemy import column as sa_column
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import DatabaseError, NoSuchTableError, SQLAlchemyError
 from sqlalchemy.schema import DropTable
 from sqlalchemy.sql import Select
 
@@ -41,8 +41,9 @@ from datakiln.extraction.models import (
     ExtractGraph,
     ExtractMeta,
     FilterConfig,
+    get_table,
 )
-from datakiln.extraction.renderers import QueryDirector
+from datakiln.extraction.renderers import QueryDirector, SQLGenerator
 from datakiln.metadata.database import DatabaseMeta, Session
 from datakiln.metadata.graph import Unresolved
 
@@ -550,11 +551,86 @@ class StreamStrategy(ExecutionStrategy):
     ) -> list[Any]:
         if filter_config.resolved_cohort and not filter_config.is_sql_cohort:
             cohort_data = self.get_cohort_set(filter_config, task=task)
-            return [
-                filter_config.to_where(cohort_data[i:i + task.chunk_size])
-                for i in range(0, max(1, len(cohort_data)), task.chunk_size)
-            ]
+            types = self._seed_types(filter_config, task, cohort_data)
+            return [filter_config.to_where(cohort_data, types)]
         return super().process_filter(filter_config, session, task)
+
+    def _column_types(self, schema: str | None, table: str) -> dict[str, Any]:
+        """Types of the columns of a table of the source, by lower case name,
+        or none if the source does not have the table."""
+        # The source tells the columns of the table, as the database has them
+        try:
+            columns = inspect(self.engine).get_columns(table, schema=schema)
+        except NoSuchTableError:
+            return {}
+
+        # The types are found by the name of the column, in lower case
+        types = {}
+        for col in columns:
+            types[col["name"].lower()] = col["type"]
+        return types
+
+    def _seed_types(
+        self,
+        filter_config: FilterConfig,
+        task: ExtractMeta,
+        cohort_data: list[tuple]
+    ) -> list[Any]:
+        """Types of the columns of the cohort data, which the dialects need
+        to send it as one parameter.
+
+        A column compared to a column of the table has its type, so that the
+        database does not convert the column of the table, which would stop
+        it from using its indexes. The type of a column compared to an
+        expression depends on the expression, so the database tells it:
+        the first of the types of the column of the table in the expression, or
+        of the column of the cohort.
+        """
+        # The types of the columns of the table and of the cohort
+        table_types = self._column_types(task.schema, task.table)
+        cohort = get_table(filter_config.resolved_cohort)
+        cohort_types = self._column_types(cohort.schema, cohort.name)
+
+        # The types the columns of the cohort data may have
+        by_table, by_cohort = filter_config.candidate_types(
+            table_types, cohort_types
+        )
+
+        # Only the expressions have different candidates, which the database
+        # tells apart. The last one is the one left if it does not accept
+        # the first
+        same = [str(t) for t in by_table] == [str(t) for t in by_cohort]
+        if same or not cohort_data:
+            return by_table
+        if self._accepts(filter_config, task, cohort_data[:1], by_table):
+            return by_table
+        return by_cohort
+
+    def _accepts(
+        self,
+        filter_config: FilterConfig,
+        task: ExtractMeta,
+        cohort_data: list[tuple],
+        types: list[Any]
+    ) -> bool:
+        """Whether the database accepts the filter with these types, which it
+        tells from a statement that does not return any row."""
+        # The filter with one seed, which returns no row
+        stmt = SQLGenerator.base_select(task.schema, task.table).where(
+            filter_config.to_where(cohort_data, types)
+        ).limit(0)
+
+        # The database refuses the statement if the types do not fit
+        try:
+            with self.engine.connect() as conn:
+                conn.execute(stmt)
+        except DatabaseError as err:
+            logger.debug(
+                "Table '%s': Types %s not accepted (%s).",
+                task.full_name, types, err.orig
+            )
+            return False
+        return True
 
     def execute(self, task: ExtractMeta, export_to: Path | None = None):
         """Execute extraction by streaming and filtering in memory."""
@@ -683,7 +759,15 @@ class StreamStrategy(ExecutionStrategy):
                 # Load seeds in chunks
                 for chunk in chunks:
                     chunk = chunk[fetch_cols]
-                    unique = chunk.drop_duplicates()
+
+                    # A row without any value does not restrict, and a
+                    # missing value is None, as the database gives it
+                    unique = (
+                        chunk.drop_duplicates()
+                        .dropna(how="all")
+                        .astype(object)
+                        .where(pd.notna, None)
+                    )
                     yield list(unique.itertuples(index=False, name=None))
 
             # Validate hash to prevent corrupted reads
