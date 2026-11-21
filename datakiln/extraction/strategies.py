@@ -6,6 +6,7 @@ import logging
 import os
 import signal
 import threading
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -550,9 +551,27 @@ class StreamStrategy(ExecutionStrategy):
         task: ExtractMeta
     ) -> list[Any]:
         if filter_config.resolved_cohort and not filter_config.is_sql_cohort:
+            # The seeds are the values of the cohort that the rows must match
+            start = time.time()
             cohort_data = self.get_cohort_set(filter_config, task=task)
+            logger.info(
+                "Table '%s': Loaded %d seeds in %.1f s.",
+                task.full_name, len(cohort_data), time.time() - start
+            )
+
+            # The database needs the type of each column of the seeds
+            start = time.time()
             types = self._seed_types(filter_config, task, cohort_data)
-            return [filter_config.to_where(cohort_data, types)]
+
+            # The filter has the seeds in groups of chunk_size
+            where = filter_config.to_where(
+                cohort_data, types, task.chunk_size
+            )
+            logger.info(
+                "Table '%s': Built the filter in %.1f s.",
+                task.full_name, time.time() - start
+            )
+            return [where]
         return super().process_filter(filter_config, session, task)
 
     def _column_types(self, schema: str | None, table: str) -> dict[str, Any]:

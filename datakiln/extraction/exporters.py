@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import threading
+import time
 from copy import copy
 from pathlib import Path
 
@@ -166,12 +167,24 @@ class DataExporter:
                 count = 0
                 idx = 0
 
+                # The database receives and starts the statement, which takes
+                # the time before the first row
+                start = time.time()
                 result = session.execute(
                     query,
                     execution_options={
                         "stream_results": True,
                         "skip_formatting": True
                     }
+                )
+
+                # The size of the parameters, such as the seeds of a filter
+                params = result.context.compiled.params
+                logger.info(
+                    "Table '%s': Executed the statement in %.1f s, with %d "
+                    "characters of parameters.",
+                    table_name, time.time() - start,
+                    sum(len(str(val)) for val in params.values())
                 )
 
                 # Write CSV header
@@ -186,7 +199,9 @@ class DataExporter:
                 # Write data in chunks
                 chunk_idx = 0
                 engine = session.get_bind()
+                ready = time.time()
                 for partition in result.partitions(chunk_size):
+                    fetched = time.time()
                     if abort and abort.is_set():
                         logger.warning(
                             "Table '%s': Pipeline aborted, stopping "
@@ -221,9 +236,12 @@ class DataExporter:
                         _insert_batch(batch_inserts)
 
                     logger.info(
-                        "Table '%s': Processed chunk %d, %d rows so far.",
-                        table_name, chunk_idx, count
+                        "Table '%s': Processed chunk %d, %d rows so far "
+                        "(fetched in %.1f s, written in %.1f s).",
+                        table_name, chunk_idx, count, fetched - ready,
+                        time.time() - fetched
                     )
+                    ready = time.time()
 
                 logger.info(
                     "Table '%s': Extracted %d rows.", table_name, count)
