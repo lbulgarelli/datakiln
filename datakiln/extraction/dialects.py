@@ -97,11 +97,14 @@ class JsonValues:
     each column and the query.
 
     :cvar bind_type: Type of the parameter that carries the JSON.
+    :cvar literal_execute: Whether the JSON is in the text of the statement,
+                           and not a parameter.
     :cvar template: Query that reads the rows, with the placeholders
                     ``{placeholder}`` of the parameter and ``{columns}`` of
                     the definitions of the columns.
     """
     bind_type = Text
+    literal_execute = False
     template = ""
 
     def column(self, col_idx, col, compiler):
@@ -135,7 +138,8 @@ class JsonValues:
         # The JSON is one parameter, whatever the number of rows
         bind_name = f"seed_list_{id(element)}"
         bind_param = bindparam(
-            bind_name, value=json_str, type_=self.bind_type()
+            bind_name, value=json_str, type_=self.bind_type(),
+            literal_execute=self.literal_execute
         )
         bind_placeholder = compiler.process(bind_param, **kwargs)
 
@@ -175,8 +179,13 @@ class OracleValues(JsonValues):
 
 
 class MssqlValues(JsonValues):
-    """SQL Server reads the JSON with OPENJSON."""
+    """SQL Server reads the JSON with OPENJSON.
+
+    The JSON is in the text of the statement, since the driver of FreeTDS
+    refuses a long string as a parameter (HY090).
+    """
     bind_type = UnicodeText
+    literal_execute = True
     template = dedent("""
     SELECT jt.*
     FROM OPENJSON({placeholder})
