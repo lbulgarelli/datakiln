@@ -560,6 +560,51 @@ class FilterConfig:
                 col = pattern.sub(f"seed.c{self.seed_positions[ref_idx]}", col)
         return col
 
+    @staticmethod
+    def seed_table(
+        values: list[tuple],
+        types: list[Any],
+        chunk_size: int | None = None
+    ) -> Any:
+        """Build the row source of the seeds of a cohort, named "seed".
+
+        The seeds are a VALUES clause, with a typed column for each column of
+        the cohort, which each dialect sends to the database as a parameter.
+
+        :param values: List of value tuples from the resolved cohort.
+        :type values: list[tuple]
+
+        :param types: Type of each column of the cohort data.
+        :type types: list[TypeEngine]
+
+        :param chunk_size: Number of seeds of each parameter. All the seeds
+                           in one by default.
+        :type chunk_size: int
+
+        :return: SA row source.
+        :rtype: FromClause
+        """
+        # A typed column for each column of the cohort
+        columns = []
+        for col_idx, type_ in enumerate(types):
+            columns.append(sa_column(f"c{col_idx}", type_))
+
+        # A parameter for each group of seeds, which are the rows of one
+        # table
+        size = chunk_size or len(values)
+        chunks = []
+        for i in range(0, len(values), size):
+            chunk = sa_values(*columns, name="seed").data(values[i:i + size])
+            chunks.append(chunk)
+
+        # The groups are one row source, which the database reads as one
+        # semi-join
+        seeds = chunks[0]
+        if len(chunks) > 1:
+            seeds = union_all(*[select(chunk) for chunk in chunks])
+            seeds = seeds.subquery("seed")
+        return seeds
+
     def to_where(
         self,
         values: list[tuple],
@@ -588,26 +633,8 @@ class FilterConfig:
         if not values:
             return false()
 
-        # The cohort data is a VALUES clause, with a typed column for each
-        # column of the cohort
-        columns = []
-        for col_idx, type_ in enumerate(types):
-            columns.append(sa_column(f"c{col_idx}", type_))
-
-        # A parameter for each group of seeds, which are the rows of one
-        # table
-        size = chunk_size or len(values)
-        chunks = []
-        for i in range(0, len(values), size):
-            chunk = sa_values(*columns, name="seed").data(values[i:i + size])
-            chunks.append(chunk)
-
-        # The groups are one row source, which the database reads as one
-        # semi-join
-        seeds = chunks[0]
-        if len(chunks) > 1:
-            seeds = union_all(*[select(chunk) for chunk in chunks])
-            seeds = seeds.subquery("seed")
+        # The seeds are the rows of one table
+        seeds = self.seed_table(values, types, chunk_size)
 
         # Each column of the filter is compared to its column of the cohort
         # data, or to its constant
