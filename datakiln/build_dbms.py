@@ -6,6 +6,7 @@ from getpass import getuser
 from pathlib import Path
 
 from datakiln.arguments import add_directory, add_export, add_include, add_log
+from datakiln.extraction import diagnostics
 from datakiln.extraction.exporters import MetadataExtractor
 from datakiln.extraction.models import ExtractGraph, ExtractMeta
 from datakiln.extraction.strategies import (
@@ -60,6 +61,7 @@ def add_arguments(parser):
                         help='Run in read-only mode (no temp tables).')
     parser.add_argument('--parallel', type=int, default=4,
                         help='Number of parallel extraction jobs.')
+    diagnostics.add_arguments(parser)
 
 
 def run(args):
@@ -96,7 +98,11 @@ def run(args):
     graph = ExtractGraph.select(tasks, args.include)
 
     # Initialize execution strategy
-    if args.read_only:
+    if args.diagnose_filters:
+        options = diagnostics.configure(args, graph)
+        strategy = diagnostics.DiagnosticStrategy(
+            db_params, directory, options)
+    elif args.read_only:
         strategy = StreamStrategy(db_params, directory)
     else:
         strategy = TempTableStrategy(db_params, directory)
@@ -115,7 +121,8 @@ def run(args):
         data_dir.mkdir(exist_ok=True)
 
         # Initialize and run parallel executor
-        executor = ParallelExecutor(strategy, graph, max_workers=args.parallel)
+        workers = 1 if args.diagnose_filters else args.parallel
+        executor = ParallelExecutor(strategy, graph, max_workers=workers)
         try:
             executor.execute(data_dir=data_dir)
         finally:

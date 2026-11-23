@@ -405,6 +405,77 @@ The metadata is written in the dialect of the target database, set in the
 `.env` file of the dataset. `extract redcap` takes the same `--data` and
 `--metadata` options, and `--include` and `--exclude` for forms.
 
+#### Diagnose slow Oracle cohort filters
+
+Add `--diagnose-filters` to the usual Oracle extraction command and name the
+tables with `--include`:
+
+```bash
+datakiln extract dbms dataset --dialect oracle --host source.example.org \
+    --port 1521 --database ORCL --user analyst --stdout \
+    --diagnose-filters --include clarity.ord_lab_perform clarity.spec_test_rel
+```
+
+The suite uses the read-only strategy, with one worker, regardless of
+`--read-only` and `--parallel`. It extracts the prerequisite tables normally
+into local temporary files, then probes the named tables without writing
+their rows or replacing their existing exports. It creates no source
+tables and needs no Oracle session-view privileges. Prerequisite extraction
+and filter preparation use the usual extraction behavior and are not covered
+by probe timeouts. Targets cannot depend on each other: diagnose those in
+separate runs. This mode requires data extraction and refuses `--metadata`.
+
+For each target, the suite loads and types its seeds once, sorts them for
+reproducibility, and runs these comparisons:
+
+1. 100, 1,000, 10,000 and all seeds per filter, keeping the task's parameter
+   chunk size fixed. Smaller sets are deterministic, evenly spaced samples.
+2. All seeds with parameter chunks of 10,000, 50,000 and the full set.
+
+Every comparison first runs `COUNT(*)` over each generated seed relation,
+measuring JSON/CLOB transfer and decoding without accessing the source
+table. It then runs the extraction query with its original columns and
+AND/OR predicates. Non-seed filters remain unchanged. Changing chunk size
+keeps all seeds in one statement; it changes the number of JSON parameters
+and `UNION ALL` branches, rather than running separate extraction queries.
+
+Results are appended immediately to a new
+`dataset/filter-diagnostics-<timestamp>.jsonl` report. The normal
+`extract.log` shows the current probe and fetching progress. The report
+contains settings, per-filter seed counts and types, SQL length, aggregate
+parameter sizes, execution time, first-fetch time, total fetch time and
+rows fetched. It stores no SQL text, seed values, result rows or database
+error messages. Errors retain their type and Oracle code. A `start` event
+without a matching `finish` identifies an interrupted probe; `phase` events
+record the transition from execution to fetching.
+
+| Diagnostic option | Default and meaning |
+| --- | --- |
+| `--diagnostic-report PATH` | New timestamped report; an existing path is refused. |
+| `--diagnostic-seed-counts N...` | `100 1000 10000 0`; zero means all seeds. |
+| `--diagnostic-chunk-sizes N...` | `10000 50000 0`; zero means one parameter per filter. |
+| `--diagnostic-max-rows N` | `10000`; zero consumes the complete result. |
+| `--diagnostic-timeout N` | `60` seconds per Oracle round trip, also checked as an elapsed budget between fetches. |
+| `--diagnostic-repeats N` | `1`; repeat the sweep to assess cache and load variation. |
+
+The call timeout uses the Oracle driver's `call_timeout`. It is not a hard
+wall-clock limit for the entire probe: execution and a fetch can each take
+up to the call timeout. Database errors and call timeouts are recorded and
+the suite continues with a fresh SQLAlchemy connection. Driver connection
+establishment is not bounded by this option.
+
+`complete` means the result was consumed; `row_limit` means timings cover
+only the requested prefix; `time_limit` means fetching stopped at its
+elapsed budget; `database_error` includes Oracle call timeouts. Compare row
+counts alongside timings, since larger seed sets can return more rows.
+Fast decoding with slow extraction points toward source access and matching
+rather than payload decoding alone. Faster smaller subsets establish a
+size-sensitive query, but do not by themselves prove that transfer is the
+cause. Chunk-size comparisons keep cohort membership fixed. Repetitions
+can reveal cache effects, but a run against an already busy source remains
+subject to that load. The existing staging-table run is the comparison for
+whether removing the JSON payload resolves the original stall.
+
 ### Permissions
 
 The build creates a database role named after the database (`DB_NAME`). It
