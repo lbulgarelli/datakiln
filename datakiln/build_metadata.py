@@ -84,8 +84,8 @@ def generate_table_meta(meta_dir, table_name, data):
 
     # Generate metadata
     meta = {
-        "name": table_name,
         "schema": "public",
+        "name": table_name,
         "encoding": "utf-8",
         "columns": list(starmap(dtype_to_meta, data.dtypes.items())),
         "constraints": {

@@ -46,10 +46,13 @@ class ColumnMeta:
         return self.rename
 
     def __iter__(self):
-        for item in self.__dict__.items():
-            if item[0].startswith("_"):
+        yield "name", self.name
+        if self.description is not None:
+            yield "description", self.description
+        for name, value in self.__dict__.items():
+            if name.startswith("_") or name in {"name", "description"}:
                 continue
-            yield item
+            yield name, value
 
     def typed(self, dialect):
         """Name of column followed by dialect-specific type.

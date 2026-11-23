@@ -245,14 +245,15 @@ A table is described by a JSON file in `metadata/`:
 {
     "schema": "study",
     "name": "visit",
+    "description": "A description of the visit table.",
     "encoding": "utf-8",
     "delimiter": ",",
     "na_values": ["N/A", "unknown"],
     "columns": [
         {
             "name": "Visit ID",
-            "rename": "visit_id",
             "description": "Identifier of the visit.",
+            "rename": "visit_id",
             "dtype": {"postgresql": "INTEGER"},
             "required": true
         },
@@ -287,6 +288,8 @@ A table is described by a JSON file in `metadata/`:
 
 - `name` is the header of the column in the data file, and `rename` is its
   name in the database.
+- `description` is optional. Datakiln adds a table comment when the database
+  dialect supports table comments.
 - `dtype` has the type for each dialect.
 - A column with `"transform": true` is not in the data file. A `transform/`
   script fills it.

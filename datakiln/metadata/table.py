@@ -136,7 +136,7 @@ class TableBase:
 
     def __init__(self, name, schema, columns, na_values=None,
                  encoding="utf-8", delimiter=",", checksum=None,
-                 artifact=None):
+                 artifact=None, description=None):
         # pylint: disable=too-many-arguments, too-many-positional-arguments
         """
         :param name: Name of the table.
@@ -147,6 +147,9 @@ class TableBase:
 
         :param columns: Metadata for table columns.
         :type columns: list[dict]
+
+        :param description: Description of the table.
+        :type description: str
 
         :param na_values: Values to consider as NULL.
         :type columns: set[str]
@@ -165,6 +168,7 @@ class TableBase:
         """
         self.name = name
         self.schema = schema
+        self.description = description
         self._columns = {}
         self.encoding = encoding
         self.delimiter = delimiter
@@ -233,6 +237,26 @@ class TableBase:
         session.execute(dedent(f"""
         CREATE INDEX ON {self.schema}.{self.name} (meta_row_id)
         """))
+
+    def comment(self, session):
+        """Add the table description as a table comment.
+
+        :param session: Database Session.
+        :type session: datakiln.metadata.database.Session
+
+        :return: None
+        """
+        if self.description is None:
+            return
+
+        if session.bind.dialect.name != "postgresql":
+            return
+
+        description = self.description.replace("'", "''")
+        stmt = dedent(f"""
+        COMMENT ON TABLE {self.schema}.{self.name} IS '{description}'
+        """)
+        session.execute(stmt)
 
 
 class StageMeta(TableBase):
@@ -537,6 +561,7 @@ class TableMeta(TableBase):
         """
         logger.info("Table '%s'.'%s': Resolving NULL values.", self.schema,
                     self.name)
+        self.comment(session)
         # Enforce constraints
         for column in self.columns:
             # Resolve NULL values
