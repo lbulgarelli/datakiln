@@ -15,6 +15,10 @@ on:
         description: Only build and check the files, without publishing
         type: boolean
         default: true
+      wheel_build:
+        description: Optional numeric wheel build; publish only the rebuilt wheel
+        type: string
+        default: ""
 
 # Two pushes in a row must not release the same version twice
 concurrency:
@@ -46,9 +50,22 @@ jobs:
             echo "release=true" >> "$GITHUB_OUTPUT"
           fi
       - name: Build
+        env:
+          WHEEL_BUILD: ${{ inputs.wheel_build }}
         run: |
-          python -m pip install --upgrade pip build twine
-          python -m build
+          python -m pip install --upgrade pip build twine wheel
+          python -m build --outdir build-dist
+          mkdir dist
+          if [ -n "$WHEEL_BUILD" ]; then
+            if ! [[ "$WHEEL_BUILD" =~ ^[0-9]+$ ]]; then
+              echo "Wheel build must contain only digits." >&2
+              exit 1
+            fi
+            built_wheel=$(python -m wheel tags --build "$WHEEL_BUILD" build-dist/*.whl)
+            cp "build-dist/$built_wheel" dist/
+          else
+            cp build-dist/* dist/
+          fi
           twine check dist/*
       - uses: actions/upload-artifact@v7
         with:
