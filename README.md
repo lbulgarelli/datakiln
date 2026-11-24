@@ -469,14 +469,15 @@ With `--diagnostic-explain`, each query has its own plan record, labeled
 with its `query_kind`. No additional flag enables the rewrite, and ordinary
 extraction continues to use the original query.
 
-Read-only runs additionally compare two shared-CTE query forms:
+Both read-only and temp-table runs compare two shared-CTE query forms:
 
 | Probe kind | Query form |
 | --- | --- |
 | `extract_cte_exists` | Shared typed seed CTEs with `EXISTS`, using disjoint `UNION ALL` branches for OR groups. |
 | `extract_cte_join` | Explicit inner joins to those same CTEs, with the same branch overlap exclusions. |
 
-The suite shares a seed CTE only when both the sampled seed tuples and
+In read-only mode, the suite shares a seed CTE only when both the sampled
+seed tuples and
 their resolved SQL types match; matching reference column names alone do
 not establish that. A shared CTE places each JSON seed relation and its
 binds in the SQL once, even when several filters or overlap exclusions
@@ -494,12 +495,20 @@ runs. In particular, string keys are excluded from the join comparison
 because source and seed collations can differ, and their CTEs retain all
 seed values. No comparison applies DISTINCT to the extracted source rows.
 
-The new probes reuse the existing samples, chunk sizes, row/time limits
+In temp-table mode, the same comparison runner selects distinct keys
+straight from the staged cohort table; it does not fetch or encode JSON
+seeds. Filters on the same staged table and ordered reference columns
+share one CTE. Direct numeric/date equality filters use both CTE forms;
+join chains, expressions, string keys and other operators retain native
+EXISTS predicates and skip the explicit join comparison. Native NULL keys
+retain ordinary SQL equality semantics. Duplicate staged keys cannot
+multiply source rows, and overlapping OR groups use the same exclusions.
+
+The probes reuse the existing samples, chunk sizes, row/time limits
 and repetitions. Records include `shared_seed_ctes`, `distinct_seed_ctes`
 and `cte_materialization: "optimizer"`. Rerun the usual command with
-`--read-only --diagnose-filters`; no additional flag enables these probes.
-These JSON/CTE comparisons are specific to read-only mode. The production
-branch and temp-table diagnostics are unchanged by them.
+`--diagnose-filters`, adding `--read-only` for JSON seeds; no additional
+flag enables these probes. These changes affect only diagnostics.
 
 Both modes collect source column types and index columns automatically;
 temp-table mode also collects row counts and metadata for the staged

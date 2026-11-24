@@ -382,8 +382,13 @@ def test_native_comparison_keeps_staging_predicates(
     monkeypatch.setattr(StatementProbe, 'run', lambda _self, query, labels:
                         recorded.append((str(query.compile(
                             dialect=oracle.dialect())), labels)))
+    columns = [{'name': name, 'type': Integer()}
+               for name in ('order_id', 'other_id')]
+    monkeypatch.setattr(
+        'datakiln.extraction.native_cte_diagnostics.inspect',
+        lambda _engine: SimpleNamespace(get_columns=lambda *_a, **_k: columns))
     NativeComparison(strategy, comparison.task).run(options)
-    assert len(recorded) == 4
+    assert len(recorded) == 6
     assert ' OR ' in recorded[0][0]
     assert 'UNION ALL' in recorded[1][0]
     assert recorded[1][1]['kind'] == 'extract_union_all'
@@ -391,8 +396,10 @@ def test_native_comparison_keeps_staging_predicates(
         assert 'tmp_orders' in sql
         assert 'JSON_TABLE' not in sql
         assert labels['strategy'] == 'temptable'
-    assert 'src.other_id' not in recorded[2][0]
-    assert 'src.order_id' not in recorded[3][0]
+    assert recorded[2][1]['kind'] == 'extract_cte_exists'
+    assert recorded[3][1]['kind'] == 'extract_cte_join'
+    assert 'src.other_id' not in recorded[4][0]
+    assert 'src.order_id' not in recorded[5][0]
 
 
 def diagnostic_args(tmp_path):

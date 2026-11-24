@@ -24,6 +24,7 @@ from datakiln.metadata.database import Session
 
 if TYPE_CHECKING:
     from datakiln.extraction.diagnostics import FilterComparison
+    from datakiln.extraction.native_diagnostics import NativeComparison
 
 logger = logging.getLogger(__name__)
 
@@ -86,11 +87,11 @@ def join_eligible(prepared: Any, seeds: list[tuple]) -> bool:
 class CteComparison:
     """Share identical typed seeds across predicates within one comparison."""
 
-    def __init__(self, comparison: 'FilterComparison'):
+    def __init__(self, comparison: 'FilterComparison | NativeComparison'):
         """Prepare shared CTE predicates for the current cohort sample.
 
-        :param comparison: Existing read-only comparison and its sample.
-        :type comparison: datakiln.extraction.diagnostics.FilterComparison
+        :param comparison: Existing comparison and its cohort source.
+        :type comparison: FilterComparison | NativeComparison
         """
         self.comparison = comparison
         self.relations = {}
@@ -98,6 +99,11 @@ class CteComparison:
         self.joinable = True
         self.shared = {}
         self.distinct_count = 0
+        self._prepare()
+
+    def _prepare(self) -> None:
+        """Build typed JSON seed relations for the current sample."""
+        comparison = self.comparison
         for identity, prepared in comparison.filters.items():
             seeds = prepared.sample(comparison.seed_count)
             self.joinable &= join_eligible(prepared, seeds)
@@ -169,8 +175,9 @@ class CteComparison:
                 run_extraction(probe, self._join_query(session),
                                dict(labels, kind='extract_cte_join'))
             else:
-                reason = ('Requires non-null direct numeric/date equality '
-                          'keys covering the complete seed tuple.')
+                reason = ('Requires direct numeric/date equality keys '
+                          'covering the complete seed tuple; JSON keys '
+                          'must be non-null.')
                 write_record(probe.options.output, dict(
                     labels, event='skip', kind='extract_cte_join',
                     status='unsupported', reason=reason))

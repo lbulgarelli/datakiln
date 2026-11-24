@@ -22,6 +22,8 @@ from sqlalchemy.dialects import oracle
 from datakiln.extraction.cte_diagnostics import CteComparison
 from datakiln.extraction.diagnostics import PreparedFilter
 from datakiln.extraction.models import ExtractMeta, FilterConfig
+from datakiln.extraction.native_cte_diagnostics import NativeCteComparison
+from datakiln.extraction.native_diagnostics import NativeComparison
 from datakiln.extraction.probes import ProbeOptions, StatementProbe
 from datakiln.extraction.renderers import QueryDirector
 
@@ -103,6 +105,7 @@ def fixture_source(monkeypatch, comparison):
                 {'a': 2, 'b': 1, 'payload': 'right'},
                 {'a': None, 'b': 1, 'payload': 'nullable'},
                 {'a': 2, 'b': 2, 'payload': 'neither'}])
+        with engine.connect() as connection:
             yield connection, comparison
     finally:
         engine.dispose()
@@ -222,3 +225,63 @@ def test_unsafe_join_is_reported_and_exists_still_runs(
     assert record['event'] == 'skip'
     assert record['kind'] == 'extract_cte_join'
     assert record['status'] == 'unsupported'
+
+
+@pytest.mark.parametrize('grouping', ['or', 'and'])
+def test_native_cte_preserves_duplicate_rows_and_null_keys(source, grouping):
+    """Test staged joins deduplicate keys and preserve source multiplicity."""
+    connection, comparison = source
+    engine = comparison.strategy.engine
+    cohort = Table('cohort', MetaData(), Column('id', Integer))
+    cohort.metadata.create_all(engine)
+    connection.execute(cohort.insert(), [{'id': 1}, {'id': 1}, {'id': None}])
+    connection.commit()
+    if grouping == 'and':
+        comparison.task.filters = [[group[0] for group in
+                                    comparison.task.filters]]
+    strategy = SimpleNamespace(
+        engine=engine, cohorts={'main.cohort': 'cohort'})
+    strategy.process_filter = lambda config, *_args: [
+        config.to_exists(strategy)]
+    native = NativeComparison(strategy, comparison.task)
+    cte = NativeCteComparison(native)
+    assert cte.joinable
+    assert len(cte.shared) == 1
+    original = QueryDirector.build_queries(
+        None, comparison.task, strategy=native)
+    exists = QueryDirector.build_queries(None, comparison.task, strategy=cte)
+    joined = cte._join_query(None)  # pylint: disable=protected-access
+    expected = Counter(map(tuple, connection.execute(original)))
+    assert Counter(map(tuple, connection.execute(exists))) == expected
+    assert Counter(map(tuple, connection.execute(joined))) == expected
+    assert expected[(1, 1, 'same')] == 2
+    assert sum(expected.values()) == (5 if grouping == 'or' else 2)
+    sql = str(joined.compile(dialect=oracle.dialect()))
+    assert 'JSON_TABLE' not in sql
+    assert sql.count('SELECT DISTINCT') == 1
+
+
+@pytest.mark.parametrize('unsafe', ['range', 'string'])
+def test_native_unsafe_filters_keep_original_exists(source, unsafe):
+    """Test unsafe staged joins retain the original native predicate."""
+    connection, comparison = source
+    engine = comparison.strategy.engine
+    cohort = Table('cohort', MetaData(), Column(
+        'id', String if unsafe == 'string' else Integer))
+    cohort.metadata.create_all(engine)
+    connection.execute(cohort.insert(), [{'id': '1'}])
+    connection.commit()
+    if unsafe == 'range':
+        comparison.task.filters[0][0].reference.operators = ['<']
+    strategy = SimpleNamespace(
+        engine=engine, cohorts={'main.cohort': 'cohort'})
+    strategy.process_filter = lambda config, *_args: [
+        config.to_exists(strategy)]
+    native = NativeComparison(strategy, comparison.task)
+    cte = NativeCteComparison(native)
+    assert not cte.joinable
+    original = QueryDirector.build_queries(
+        None, comparison.task, strategy=native)
+    exists = QueryDirector.build_queries(None, comparison.task, strategy=cte)
+    assert Counter(map(tuple, connection.execute(exists))) == Counter(
+        map(tuple, connection.execute(original)))
