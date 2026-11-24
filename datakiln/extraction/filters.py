@@ -28,6 +28,7 @@ from sqlalchemy.sql.expression import Exists
 from sqlalchemy.sql.selectable import CTE, FromClause, SelectBase
 from sqlalchemy.types import TypeEngine
 
+from datakiln.extraction.cohorts import SQLCohort
 from datakiln.extraction.models import ColumnPair, FilterConfig, get_table
 
 
@@ -229,6 +230,35 @@ class DatabaseFilter(FilterBuilder):
         self.cohorts = cohorts
         self.dialect = dialect
 
+    def sql_reference(
+        self,
+        resolved: str,
+        queries: CohortFilters
+    ) -> FromClause:
+        """Reuse a SQL cohort with its CTEs registered at the statement level.
+
+        :param resolved: Parenthesized cohort SELECT and its trailing alias.
+        :type resolved: str
+
+        :param queries: Statement builder holding shared reference CTEs.
+        :type queries: datakiln.extraction.filters.CohortFilters
+
+        :return: Cohort CTE under this filter's configured reference alias.
+        :rtype: sqlalchemy.sql.selectable.FromClause
+        """
+        # Different projections of one cohort must share its SQL result,
+        # including any randomized sample defined by the cohort itself.
+        query = resolved.strip()[1:].rsplit(')', 1)[0]
+        key = ('sql_cohort', self.config.resolved_cohort, query)
+        if key not in queries.references:
+            name = f'cohort_sql_{len(queries.references) + 1}'
+            queries.references[key] = SQLCohort(
+                query, name, self.dialect
+            ).build()
+        return FromClause.alias(
+            queries.references[key], name=self.config.reference.alias
+        )
+
     def reference_table(self, queries: CohortFilters) -> CTE:
         """Build or reuse a projection of the complete reference join.
 
@@ -277,8 +307,7 @@ class DatabaseFilter(FilterBuilder):
         # Resolve the root cohort to its staged table or SQL subquery.
         if resolved:
             if resolved.strip().startswith('('):
-                query_body = resolved.strip().rsplit(')', 1)[0] + ')'
-                reference = text(f'{query_body} {self.config.reference.alias}')
+                reference = self.sql_reference(resolved, queries)
             else:
                 reference = get_table(resolved, self.config.reference.alias)
         else:
