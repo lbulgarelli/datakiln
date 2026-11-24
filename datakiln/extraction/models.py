@@ -706,11 +706,18 @@ class ExtractMeta:
         self.kwargs = kwargs
         self.filters = []
 
-        for f in (filters or []):
-            if isinstance(f, list):
-                self.filters.append([FilterConfig(**c) for c in f])
-            else:
-                self.filters.append([FilterConfig(**f)])
+        # Normalize individual filters to groups and skip empty groups
+        # before they reach the query builder.
+        for group in filters or []:
+            if not isinstance(group, list):
+                group = [group]
+            if not group:
+                continue
+
+            filter_group = []
+            for config in group:
+                filter_group.append(FilterConfig(**config))
+            self.filters.append(filter_group)
 
     @property
     def full_name(self) -> str:
