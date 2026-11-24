@@ -14,8 +14,10 @@ from sqlalchemy import (
 from sqlalchemy import table as sql_table
 from sqlalchemy.sql import Select
 from sqlalchemy.sql.functions import count as sql_count
+from sqlalchemy.sql.selectable import CompoundSelect
 
 from datakiln.extraction.probes import StatementProbe
+from datakiln.extraction.rewrites import disjoint_union_all
 
 PLAN_NUMERIC = ('id', 'parent_id', 'cardinality', 'cost', 'bytes')
 PLAN_TEXT = ('operation', 'options', 'object_owner', 'object_name')
@@ -42,7 +44,7 @@ def _plan_query(identifier: str) -> Select:
 class MetadataProbe(StatementProbe):  # pylint: disable=too-few-public-methods
     """Record column types and ordinary index metadata of the source table."""
 
-    def _execute(self, connection: Any, statement: Select,
+    def _execute(self, connection: Any, statement: Select | CompoundSelect,
                  record: dict[str, Any]) -> None:
         """Reflect only metadata, excluding defaults, comments and values."""
         del statement
@@ -81,7 +83,7 @@ class MetadataProbe(StatementProbe):  # pylint: disable=too-few-public-methods
 class PlanProbe(StatementProbe):  # pylint: disable=too-few-public-methods
     """Read an estimated plan through PLAN_TABLE without querying V$ views."""
 
-    def _execute(self, connection: Any, statement: Select,
+    def _execute(self, connection: Any, statement: Select | CompoundSelect,
                  record: dict[str, Any]) -> None:
         """Explain a bound statement and retain structural plan columns."""
         record['phase'] = 'explain'
@@ -115,7 +117,7 @@ class PlanProbe(StatementProbe):  # pylint: disable=too-few-public-methods
 
 def run_extraction(probe: StatementProbe, statement: Select,
                    labels: dict[str, Any]) -> None:
-    """Optionally explain a query, then measure it on another connection.
+    """Compare original and disjoint queries, optionally explaining each.
 
     :param probe: Execution probe and its settings.
     :type probe: datakiln.extraction.probes.StatementProbe
@@ -124,8 +126,18 @@ def run_extraction(probe: StatementProbe, statement: Select,
     :param labels: Strategy and comparison labels.
     :type labels: dict[str, typing.Any]
     """
-    if probe.options.explain:
-        plan = PlanProbe(probe.engine, probe.options)
-        plan.run(statement, dict(
-            labels, kind='plan', query_kind=labels['kind']))
-    probe.run(statement, labels)
+    comparisons = [(statement, labels)]
+    if labels['kind'] == 'extract':
+        rewritten = disjoint_union_all(statement)
+        if rewritten is not None:
+            comparisons.append((rewritten, dict(
+                labels, kind='extract_union_all',
+                rewrite='disjoint_union_all')))
+
+    # Keep the baseline first, and use identical budgets and input seeds.
+    for query, query_labels in comparisons:
+        if probe.options.explain:
+            plan = PlanProbe(probe.engine, probe.options)
+            plan.run(query, dict(query_labels, kind='plan',
+                                 query_kind=query_labels['kind']))
+        probe.run(query, query_labels)

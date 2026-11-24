@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.sql import Select
+from sqlalchemy.sql.selectable import CompoundSelect
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +74,12 @@ class StatementProbe:  # pylint: disable=too-few-public-methods
         self.engine = engine
         self.options = options
 
-    def run(self, statement: Select, labels: dict[str, Any]) -> dict[str, Any]:
+    def run(self, statement: Select | CompoundSelect,
+            labels: dict[str, Any]) -> dict[str, Any]:
         """Record a probe, continuing after database errors and timeouts.
 
         :param statement: Read-only statement to execute.
-        :type statement: sqlalchemy.sql.Select
+        :type statement: sqlalchemy.sql.Select | sqlalchemy.sql.CompoundSelect
         :param labels: Table, variant and seed metadata for this probe.
         :type labels: dict[str, typing.Any]
         :return: Completed measurements, also appended to the report.
@@ -129,7 +131,7 @@ class StatementProbe:  # pylint: disable=too-few-public-methods
         driver.call_timeout = self.options.timeout * 1000
         return previous
 
-    def _execute(self, connection: Any, statement: Select,
+    def _execute(self, connection: Any, statement: Select | CompoundSelect,
                  record: dict[str, Any]) -> None:
         """Measure execution, the first row and subsequent batches."""
         # Log before blocking so an interrupted report names the operation.

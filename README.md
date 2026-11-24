@@ -449,6 +449,26 @@ and `UNION ALL` branches, rather than running separate extraction queries.
 In temp-table mode, the suite compares the original combined native query
 against each predicate separately, using all staged cohort rows. It does
 not introduce JSON filters or apply the seed-count/chunk-size sweeps.
+
+Both strategies also benchmark an `extract_union_all` query whenever the
+combined query has a top-level `OR`. The rewrite splits the OR branches
+into `UNION ALL` queries, retaining each branch's AND conditions. A later
+branch excludes rows already matched by any earlier branch: existence
+predicates use `NOT EXISTS`, while nullable conditions use a `CASE` test
+that excludes TRUE and retains FALSE or UNKNOWN. Thus a source row that
+matches several branches is returned once, while separate source rows
+with identical values retain their original multiplicity. It does not use
+`UNION` or `DISTINCT` over the result rows. Row order can differ.
+
+The original `extract` probe runs first, followed by `extract_union_all`
+with the same seeds, parameter chunk size, row limit and timeout. Compare
+records with matching strategy, variant, seed limit, chunk size and repeat.
+Use `--diagnostic-max-rows 0` to request complete consumption when comparing
+total row counts; a capped or timed-out probe does not establish a total.
+With `--diagnostic-explain`, each query has its own plan record, labeled
+with its `query_kind`. No additional flag enables the rewrite, and ordinary
+extraction continues to use the original query.
+
 Both modes collect source column types and index columns automatically;
 temp-table mode also collects row counts and metadata for the staged
 cohort tables after their indexes are prepared. Unavailable metadata is

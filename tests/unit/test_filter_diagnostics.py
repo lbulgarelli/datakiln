@@ -326,7 +326,7 @@ def test_sweep_runs_decode_and_extract(comparison, options, monkeypatch):
     monkeypatch.setattr(comparison.strategy, 'session', session)
     comparison.strategy.__dict__['engine'] = None
     comparison.run(options)
-    assert len(recorded) == 20
+    assert len(recorded) == 24
     extracts = []
     for _, labels in recorded:
         if labels['kind'] == 'extract':
@@ -381,14 +381,16 @@ def test_native_comparison_keeps_staging_predicates(
                         recorded.append((str(query.compile(
                             dialect=oracle.dialect())), labels)))
     NativeComparison(strategy, comparison.task).run(options)
-    assert len(recorded) == 3
+    assert len(recorded) == 4
     assert ' OR ' in recorded[0][0]
+    assert 'UNION ALL' in recorded[1][0]
+    assert recorded[1][1]['kind'] == 'extract_union_all'
     for sql, labels in recorded:
         assert 'tmp_orders' in sql
         assert 'JSON_TABLE' not in sql
         assert labels['strategy'] == 'temptable'
-    assert 'src.other_id' not in recorded[1][0]
-    assert 'src.order_id' not in recorded[2][0]
+    assert 'src.other_id' not in recorded[2][0]
+    assert 'src.order_id' not in recorded[3][0]
 
 
 def diagnostic_args(tmp_path):

@@ -12,6 +12,7 @@ from sqlalchemy import (
     Table,
     create_engine,
     literal,
+    or_,
     select,
 )
 from sqlalchemy.dialects import oracle
@@ -24,6 +25,7 @@ from datakiln.extraction.probe_metadata import (
     run_extraction,
 )
 from datakiln.extraction.probes import ProbeOptions, StatementProbe
+from datakiln.extraction.rewrites import disjoint_union_all
 
 
 @pytest.fixture(name='options')
@@ -95,12 +97,15 @@ def fixture_plan_engine():
     return engine, statements
 
 
-def test_plan_preserves_clob_bind_types(options, plan_engine):
+@pytest.mark.parametrize('rewrite', [False, True])
+def test_plan_preserves_clob_bind_types(options, plan_engine, rewrite):
     """Test EXPLAIN PLAN retains CLOB binds without literal seed values."""
     config = FilterConfig(['order_id'], {
         'schema': 'source', 'table': 'orders', 'columns': ['order_id']})
-    statement = select(literal(1)).where(config.to_where(
-        [(987654321,)], [Integer()], 100))
+    predicate = config.to_where([(987654321,)], [Integer()], 100)
+    statement = select(literal(1)).where(or_(predicate, predicate))
+    if rewrite:
+        statement = disjoint_union_all(statement)
     engine, statements = plan_engine
     result = PlanProbe(engine, options).run(statement, {
         'table': 'source.results', 'kind': 'plan'})
