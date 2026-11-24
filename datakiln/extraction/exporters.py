@@ -11,10 +11,11 @@ import time
 from copy import copy
 from pathlib import Path
 
-from sqlalchemy import Boolean, Column, MetaData, Select, Table
+from sqlalchemy import Boolean, Column, MetaData, Table
 from sqlalchemy.dialects import registry
 from sqlalchemy.dialects.mssql import BIT
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.sql.selectable import SelectBase
 from tenacity import (
     before_sleep_log,
     retry,
@@ -141,7 +142,7 @@ class DataExporter:
     @db_retry
     def stream_to_csv(
         session: Session,
-        query: Select,
+        query: SelectBase,
         export_path: Path,
         table_name: str = "unknown",
         insert_to: Table | None = None,

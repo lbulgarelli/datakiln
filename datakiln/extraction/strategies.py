@@ -23,6 +23,7 @@ from sqlalchemy import (
     and_,
     inspect,
     literal,
+    literal_column,
     select,
     text,
     values,
@@ -30,9 +31,17 @@ from sqlalchemy import (
 from sqlalchemy import column as sa_column
 from sqlalchemy.exc import DatabaseError, NoSuchTableError, SQLAlchemyError
 from sqlalchemy.schema import DropTable
-from sqlalchemy.sql import Select
+from sqlalchemy.sql.elements import ClauseElement
+from sqlalchemy.sql.selectable import SelectBase
 
 from datakiln.extraction.exporters import DataExporter, MetadataExtractor
+from datakiln.extraction.filters import (
+    CohortFilters,
+    DatabaseFilter,
+    FilterBuilder,
+    SeedContext,
+    SeedFilter,
+)
 from datakiln.extraction.models import (
     UUID,
     ExtractMeta,
@@ -118,17 +127,16 @@ class ExecutionStrategy(ABC):
                 if hasattr(self._local, "session"):
                     del self._local.session
 
-    def build_queries(self, task: ExtractMeta) -> Select:
+    def build_queries(self, task: ExtractMeta) -> SelectBase:
         """Build the extraction SA Select statement.
 
         :param task: Extraction task metadata.
         :type task: ExtractMeta
 
         :return: SA Select statement.
-        :rtype: Select
+        :rtype: sqlalchemy.sql.selectable.SelectBase
         """
-        with self.session() as session:
-            return QueryDirector.build_queries(session, task, strategy=self)
+        return QueryDirector.build_queries(task, strategy=self)
 
     @property
     def is_read_only(self) -> bool:
@@ -139,11 +147,34 @@ class ExecutionStrategy(ABC):
     def process_filter(
         self,
         filter_config: FilterConfig,
-        session: Session,
-        task: ExtractMeta
-    ) -> list[Any]:
-        """Determine how to process a filter for this strategy."""
-        return [filter_config.to_exists(self)]
+        task: ExtractMeta,
+        queries: CohortFilters,
+        seeds: SeedContext
+    ) -> ClauseElement:
+        """Construct the filter join and return its match condition.
+
+        :param filter_config: Filter to apply to the source rows.
+        :type filter_config: datakiln.extraction.models.FilterConfig
+
+        :param task: Extraction target.
+        :type task: datakiln.extraction.models.ExtractMeta
+
+        :param queries: Statement builder that attaches filter joins.
+        :type queries: datakiln.extraction.filters.CohortFilters
+
+        :param seeds: Seed settings and shared CTE cache for this query.
+        :type seeds: datakiln.extraction.filters.SeedContext
+
+        :return: Condition indicating whether this filter matched.
+        :rtype: sqlalchemy.sql.elements.ClauseElement
+        """
+        # Constant filters have no reference; database filters resolve a
+        # table or SQL cohort through this strategy's cohort mapping.
+        if filter_config.resolved_cohort is None:
+            return FilterBuilder(filter_config).build(queries)
+        return DatabaseFilter(
+            filter_config, self.cohorts, seeds.dialect
+        ).build(queries)
 
     @abstractmethod
     def execute(self, task: ExtractMeta, export_to: Path | None = None):
@@ -238,28 +269,26 @@ class TempTableStrategy(ExecutionStrategy):
     def process_filter(
         self,
         filter_config: FilterConfig,
-        session: Session,
-        task: ExtractMeta
-    ) -> list[Any]:
+        task: ExtractMeta,
+        queries: CohortFilters,
+        seeds: SeedContext
+    ) -> ClauseElement:
         if filter_config.resolved_cohort is not None:
             actual_table = self.cohorts.get(
                 filter_config.resolved_cohort,
                 filter_config.resolved_cohort
             ).split(".")
-            self.ensure_index(
-                session,
-                actual_table,
-                filter_config.cohort_columns
-            )
-        return super().process_filter(filter_config, session, task)
+            with self.session() as session:
+                self.ensure_index(
+                    session, actual_table, filter_config.cohort_columns)
+        return super().process_filter(filter_config, task, queries, seeds)
 
     def execute(self, task: ExtractMeta, export_to: Path | None = None):
         # pylint: disable=too-many-locals
         logger.info("Table '%s': Extracting.", task.full_name)
 
         with self.session() as session:
-            # TempTableStrategy is never read-only, but multiple OR groups
-            # will still produce multiple statements.
+            # All filter groups share one duplicate-preserving statement.
             query = self.build_queries(task)
             temp_table = task.temp_name
 
@@ -411,8 +440,8 @@ class JoinChain:
         self._cohort_cols = filter_config.cohort_columns
         self._cohort_alias = filter_config.reference.alias
         self._target_cols = []
-        for c in filter_config.reference.columns:
-            self._target_cols.append(text(c))
+        for reference in filter_config.reference_columns:
+            self._target_cols.append(literal_column(reference))
         self._cohort_types = {}
         self._seed_joins = []
         self._where_clauses = []
@@ -541,9 +570,10 @@ class StreamStrategy(ExecutionStrategy):
     def process_filter(
         self,
         filter_config: FilterConfig,
-        session: Session,
-        task: ExtractMeta
-    ) -> list[Any]:
+        task: ExtractMeta,
+        queries: CohortFilters,
+        seeds: SeedContext
+    ) -> ClauseElement:
         if filter_config.resolved_cohort and not filter_config.is_sql_cohort:
             # The seeds are the values of the cohort that the rows must match
             start = time.time()
@@ -558,15 +588,18 @@ class StreamStrategy(ExecutionStrategy):
             types = self._seed_types(filter_config, task, cohort_data)
 
             # The filter has the seeds in groups of chunk_size
-            where = filter_config.to_where(
-                cohort_data, types, task.chunk_size
-            )
+            condition = SeedFilter(
+                filter_config,
+                cohort_data,
+                types,
+                context=seeds
+            ).build(queries)
             logger.info(
                 "Table '%s': Built the filter in %.1f s.",
                 task.full_name, time.time() - start
             )
-            return [where]
-        return super().process_filter(filter_config, session, task)
+            return condition
+        return super().process_filter(filter_config, task, queries, seeds)
 
     def _column_types(self, schema: str | None, table: str) -> dict[str, Any]:
         """Types of the columns of a table of the source, by lower case name,
@@ -588,7 +621,7 @@ class StreamStrategy(ExecutionStrategy):
         filter_config: FilterConfig,
         task: ExtractMeta,
         cohort_data: list[tuple]
-    ) -> list[Any]:
+    ) -> dict[str, Any]:
         """Types of the columns of the cohort data, which the dialects need
         to send it as one parameter.
 
@@ -602,36 +635,64 @@ class StreamStrategy(ExecutionStrategy):
         # The types of the columns of the table and of the cohort
         table_types = self._column_types(task.schema, task.table)
         cohort = get_table(filter_config.resolved_cohort)
-        cohort_types = self._column_types(cohort.schema, cohort.name)
+        cohort_types = {}
+        for name, kind in self._column_types(
+            cohort.schema,
+            cohort.name
+        ).items():
+            name = f'{filter_config.reference.alias}.{name}'.lower()
+            cohort_types[name] = kind
+
+        # Joined reference fields retain their own types, including when
+        # different tables contain columns with the same name.
+        for join in filter_config.join:
+            for name, kind in self._column_types(
+                join.reference.schema,
+                join.reference.table
+            ).items():
+                name = f'{join.reference.alias}.{name}'.lower()
+                cohort_types[name] = kind
 
         # The types the columns of the cohort data may have
-        by_table, by_cohort = filter_config.candidate_types(
-            table_types, cohort_types
+        by_table, by_cohort = SeedFilter.candidate_types(
+            filter_config, table_types, cohort_types
         )
 
-        # Only the expressions have different candidates, which the database
-        # tells apart. The last one is the one left if it does not accept
-        # the first
-        same = [str(t) for t in by_table] == [str(t) for t in by_cohort]
-        if same or not cohort_data:
+        # Without seed rows, there is no sample to use in a type probe.
+        if not cohort_data:
             return by_table
-        if self._accepts(filter_config, task, cohort_data[:1], by_table):
-            return by_table
-        return by_cohort
+
+        # Probe expressions only when the two candidate SQL types differ.
+        for name, kind in by_table.items():
+            dialect = self.engine.dialect
+            source_sql_type = kind.compile(dialect=dialect)
+            reference_sql_type = by_cohort[name].compile(dialect=dialect)
+            if source_sql_type != reference_sql_type:
+                if self._accepts(
+                    filter_config, task, cohort_data[:1], by_table
+                ):
+                    return by_table
+                return by_cohort
+        return by_table
 
     def _accepts(
         self,
         filter_config: FilterConfig,
         task: ExtractMeta,
         cohort_data: list[tuple],
-        types: list[Any]
+        types: dict[str, Any]
     ) -> bool:
         """Whether the database accepts the filter with these types, which it
         tells from a statement that does not return any row."""
         # The filter with one seed, which returns no row
-        stmt = SQLGenerator.base_select(task.schema, task.table).where(
-            filter_config.to_where(cohort_data, types)
-        ).limit(0)
+        source = SQLGenerator.base_select(
+            task.schema, task.table, self.engine
+        )
+        queries = CohortFilters(source)
+        seeds = SeedContext(self.engine.dialect, task.chunk_size)
+        seed_filter = SeedFilter(filter_config, cohort_data, types, seeds)
+        condition = seed_filter.build(queries)
+        stmt = queries.build([[condition]]).limit(0)
 
         # The database refuses the statement if the types do not fit
         try:
@@ -731,7 +792,7 @@ class StreamStrategy(ExecutionStrategy):
                 for row in chain_obj.execute(chunk, session):
                     str_vals = []
                     for val in row:
-                        str_vals.append(str(val))
+                        str_vals.append(None if val is None else str(val))
                     final_tuples.add(tuple(str_vals))
         return list(final_tuples)
 

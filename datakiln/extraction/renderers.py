@@ -1,16 +1,22 @@
 """
 SQL rendering strategies for the extraction pipeline.
 """
-import itertools
 from threading import Lock
 from typing import TYPE_CHECKING
 
-from sqlalchemy import MetaData, Table, and_, literal_column, or_, select
+from sqlalchemy import (
+    Column,
+    MetaData,
+    Table,
+    inspect,
+    select,
+)
+from sqlalchemy.engine import Engine
 from sqlalchemy.sql import Select
-from sqlalchemy.sql.elements import ClauseElement
+from sqlalchemy.sql.selectable import SelectBase
 
+from datakiln.extraction.filters import CohortFilters, SeedContext
 from datakiln.extraction.models import ExtractMeta
-from datakiln.metadata.database import Session
 
 if TYPE_CHECKING:
     from datakiln.extraction.strategies import ExecutionStrategy
@@ -22,20 +28,32 @@ class SQLGenerator:
     _lock = Lock()
 
     @staticmethod
-    def base_select(schema: str, table: str) -> Select:
-        """Return a base SELECT * for a given schema-qualified table.
+    def base_select(
+        schema: str | None,
+        table: str,
+        engine: Engine
+    ) -> Select:
+        """Select the source columns in their database order.
 
         :param schema: Database schema name.
-        :type schema: str
+        :type schema: str, optional
 
         :param table: Table name.
         :type table: str
 
+        :param engine: Source engine used to read the column metadata.
+        :type engine: sqlalchemy.engine.Engine
+
         :return: SA Select statement.
         :rtype: Select
         """
-        src = Table(table, MetaData(), schema=schema).alias("src")
-        return select(literal_column("*")).select_from(src)
+        # Read column names and types so window helpers can be excluded
+        # from the output without grouping or deduplicating source values.
+        columns = []
+        for info in inspect(engine).get_columns(table, schema=schema):
+            columns.append(Column(info["name"], info["type"]))
+        src = Table(table, MetaData(), *columns, schema=schema).alias("src")
+        return select(*src.c)
 
 
 class QueryDirector:
@@ -43,16 +61,11 @@ class QueryDirector:
     """Orchestrates query construction across strategies and filters."""
 
     @staticmethod
-    # pylint: disable=too-many-locals
     def build_queries(
-        session: Session,
         task: ExtractMeta,
         strategy: 'ExecutionStrategy'
-    ) -> Select:
+    ) -> SelectBase:
         """Build the runnable SA Select statement for a task.
-
-        :param session: Active SQLAlchemy session.
-        :type session: Session
 
         :param task: Extraction task metadata.
         :type task: ExtractMeta
@@ -61,69 +74,29 @@ class QueryDirector:
         :type strategy: ExecutionStrategy
 
         :return: SA Select statement ready for execution.
-        :rtype: Select
+        :rtype: sqlalchemy.sql.selectable.SelectBase
         """
+        # Attach all filter joins through one statement builder.
+        stmt = SQLGenerator.base_select(
+            task.schema, task.table, strategy.engine
+        )
+        queries = CohortFilters(stmt)
+
+        # Each query has one seed context so filters can reuse seed CTEs.
         filters = []
+        seeds = SeedContext(strategy.engine.dialect, task.chunk_size)
         for filter_group in task.filters:
             group_filters = []
 
             for filter_config in filter_group:
                 group_filters.append(strategy.process_filter(
-                    filter_config, session, task
+                    filter_config, task, queries, seeds
                 ))
             filters.append(group_filters)
-
-        # Build base statement
-        stmt = SQLGenerator.base_select(task.schema, task.table)
 
         # If no filters, return the base statement
         if not filters:
             return stmt
 
-        # Build chunked queries
-        return QueryDirector._chunked_queries(
-            stmt,
-            groups=filters
-        )
-
-    @staticmethod
-    def _chunked_queries(
-        base_stmt: Select,
-        groups: list[list[list[ClauseElement]]]
-    ) -> Select:
-        """Decompose primary cohort sets into a chunked SA Select statement.
-
-        :param base_stmt: Base SA Select to extend with WHERE conditions.
-        :type base_stmt: Select
-
-        :param groups: A 3D list where the outermost list represents OR groups,
-                       the middle list represents AND conditions within an OR
-                       group, and the innermost list contains the chunked SA
-                       ClauseElements for a specific condition.
-        :type groups: List[List[List[ClauseElement]]]
-
-        :return: SA Select statement representing all chunks.
-        :rtype: Select
-        """
-        or_clauses = []
-
-        for or_group in groups:
-            # Iterate over the cartesian product of all filter chunks
-            # in this OR group.
-            for chunk_combo in itertools.product(*or_group):
-                clauses = list(chunk_combo)
-
-                if not clauses:
-                    continue
-
-                # Combine clauses since they are part of the same group
-                or_clauses.append(
-                    and_(*clauses) if len(clauses) > 1 else clauses[0]
-                )
-
-        if not or_clauses:
-            return base_stmt
-
-        return base_stmt.where(
-            or_(*or_clauses) if len(or_clauses) > 1 else or_clauses[0]
-        )
+        # The joins are already attached; combine their match conditions.
+        return queries.build(filters)

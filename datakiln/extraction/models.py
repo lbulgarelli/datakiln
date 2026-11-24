@@ -7,34 +7,16 @@ from collections.abc import Iterable, Iterator
 from functools import cached_property
 from itertools import repeat
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-)
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import (
     MetaData,
-    String,
     Table,
-    and_,
-    exists,
-    false,
-    literal,
-    literal_column,
-    or_,
-    select,
     text,
-    union_all,
 )
-from sqlalchemy import column as sa_column
-from sqlalchemy import values as sa_values
 
 from datakiln.metadata.graph import DependencyGraph
-
-if TYPE_CHECKING:
-    from datakiln.extraction.strategies import ExecutionStrategy
-
 
 # Generate a unique run UUID shared across extraction components
 UUID = str(uuid4()).rsplit("-", maxsplit=1)[-1]
@@ -121,15 +103,6 @@ class ReferenceConfig:
             return f"{self.schema}.{self.table}"
         return self.table or ""
 
-    @cached_property
-    def patterns(self) -> list[Any]:
-        """Precompiled regex patterns for reference columns."""
-        pattern_list = []
-        for column in self.columns:
-            pattern_str = rf"(?<![\w\.\:]){re.escape(column)}(?![\w\.])"
-            pattern_list.append(re.compile(pattern_str))
-        return pattern_list
-
 
 class ColumnPair:
     """Base class for a single condition in a JoinConfig pair list."""
@@ -151,21 +124,24 @@ class ColumnPair:
         return col.split(".")[-1]
 
     @staticmethod
-    def extract_columns(expr: str, alias: str) -> list[str]:
-        """Extract all column names associated with an alias.
+    def extract_columns(expr: str) -> list[str]:
+        """Extract qualified column references in expression order.
 
-        :param expr: SQL column expression
-                     (e.g. ``'COALESCE(src.id, ref.pat_id)'``).
+        :param expr: SQL expression, such as ``'src.value + ref.offset'``.
         :type expr: str
 
-        :param alias: Table alias (e.g. ``'ref'``).
-        :type alias: str
-
-        :return: List of extracted bare column names.
+        :return: References including their aliases, such as ``'ref.offset'``.
         :rtype: list[str]
         """
-        pattern = rf"(?<![\w\.]){re.escape(alias)}\.([a-zA-Z0-9_]+)(?![\w\.])"
-        return [match.group(1) for match in re.finditer(pattern, expr)]
+        pattern = (
+            r'(?<![\w.])'
+            r'([a-zA-Z_][\w$#]*\.[a-zA-Z0-9_$#]+)'
+            r'(?![\w.])'
+        )
+        columns = []
+        for match in re.finditer(pattern, expr):
+            columns.append(match.group(1))
+        return columns
 
     @classmethod
     def classify(
@@ -415,256 +391,28 @@ class FilterConfig:
             for pair in j.seed_pairs():
                 columns[pair.local] = None
 
-        # Extract any identifier that starts with "alias."
-        alias = self.reference.alias
-        for col in self.reference.columns:
-            for col_name in ColumnPair.extract_columns(col, alias):
-                columns[col_name] = None
+        # Only columns from the root cohort are read from its local data.
+        for reference in self.reference_columns:
+            alias, name = reference.split('.', 1)
+            if alias == self.reference.alias:
+                columns[name] = None
         return list(columns)
 
     @cached_property
-    def seed_positions(self) -> dict[int, int]:
-        """Return the position in the cohort data of each reference column
-        that is a column of the cohort, by the position of the reference
-        column. The others are constants, such as a list of values."""
-        # A reference column that names a column of the cohort takes the next
-        # position of the cohort data
-        positions = {}
-        for ref_idx, ref_col in enumerate(self.reference.columns):
-            if ColumnPair.extract_columns(ref_col, self.reference.alias):
-                positions[ref_idx] = len(positions)
-        return positions
+    def reference_columns(self) -> list[str]:
+        """Collect root and joined reference columns used in comparisons."""
+        aliases = {self.reference.alias}
+        for join in self.join:
+            aliases.add(join.reference.alias)
 
-    def to_exists(
-        self,
-        strategy: 'ExecutionStrategy'
-    ) -> Any:
-        """Generate a SQLAlchemy EXISTS subquery for this filter configuration.
-
-        :param strategy: Execution strategy (used to resolve cohort aliases).
-        :type strategy: ExecutionStrategy
-
-        :return: SA exists() expression.
-        :rtype: Exists
-        """
-        # Resolve the primary table
-        resolved = strategy.cohorts.get(self.resolved_cohort, self.cohort)
-
-        if resolved:
-            if resolved.strip().startswith("("):
-                # resolved is a subquery like "( SELECT ... ) cohort_name"
-                # Strip the cohort name and replace it with the reference alias
-                query_body = resolved.strip().rsplit(")", 1)[0] + ")"
-                from_clause = text(f"{query_body} {self.reference.alias}")
-            else:
-                from_clause = get_table(resolved, self.reference.alias)
-        elif self.reference.schema and self.reference.table:
-            from_clause = Table(
-                self.reference.table,
-                MetaData(),
-                schema=self.reference.schema
-            ).alias(self.reference.alias)
-        else:
-            from_clause = None
-
-        # Build WHERE conditions
-        conditions = [
-            text(f"{col} {op} {ref}")
-            for col, op, ref in zip(
-                self.columns,
-                self.reference.operators,
-                self.reference.columns
-            )
-        ]
-
-        # If there is no from_clause, return the conditions as a conjunction
-        if from_clause is None:
-            return and_(*conditions)
-
-        # Build join chain
-        for j in self.join:
-            join_name = j.to_join(strategy.cohorts)
-            join_tbl = get_table(join_name, j.reference.alias)
-            from_clause = from_clause.join(join_tbl, j.to_onclause())
-
-        return exists(
-            select(literal(1))
-            .select_from(from_clause)
-            .where(and_(*conditions))
-        )
-
-    def candidate_types(
-        self,
-        table_types: dict[str, Any],
-        cohort_types: dict[str, Any]
-    ) -> tuple[list[Any], list[Any]]:
-        """The types the columns of the cohort data may have, to be tried in
-        order: the types of the columns of the table, and the ones of the
-        cohort. They only differ in the columns compared to an expression.
-
-        :param table_types: Types of the columns of the table, by lower case
-                            name.
-        :type table_types: dict[str, TypeEngine]
-
-        :param cohort_types: Types of the columns of the cohort, by lower case
-                             name.
-        :type cohort_types: dict[str, TypeEngine]
-
-        :return: The types of each column, for each candidate.
-        :rtype: tuple[list[TypeEngine], list[TypeEngine]]
-        """
-        by_table, by_cohort = [], []
-        for ref_idx, (col, ref_col) in enumerate(zip(
-            self.columns,
-            self.reference.columns
-        )):
-            # A constant is not in the cohort data
-            if ref_idx not in self.seed_positions:
-                continue
-
-            # The type of the first column of the table in the column
-            names = ColumnPair.extract_columns(col.lower(), "src")
-            table_type = String()
-            for name in names:
-                if name in table_types:
-                    table_type = table_types[name]
-                    break
-
-            # A column of the table is compared as it is, so that the
-            # database does not convert it, which would stop it from using
-            # its indexes. The type of an expression depends on it, so it
-            # may be the one of the cohort
-            ref_name = ColumnPair.bare(ref_col).lower()
-            cohort_type = cohort_types.get(ref_name, table_type)
-            if names and col.lower() == f"src.{names[0]}":
-                cohort_type = table_type
-
-            by_table.append(table_type)
-            by_cohort.append(cohort_type)
-        return by_table, by_cohort
-
-    def seed_expression(self, col: str) -> str:
-        """Replace any reference column in a column of the filter with its
-        corresponding column of the cohort data.
-
-        :param col: Column of the filter, or an expression.
-        :type col: str
-
-        :return: The column, in terms of the columns of the cohort data.
-        :rtype: str
-        """
-        # A reference column of the cohort is a column of the cohort data,
-        # which is named "seed"
-        for ref_idx, pattern in enumerate(self.reference.patterns):
-            if ref_idx in self.seed_positions:
-                col = pattern.sub(f"seed.c{self.seed_positions[ref_idx]}", col)
-        return col
-
-    @staticmethod
-    def seed_table(
-        values: list[tuple],
-        types: list[Any],
-        chunk_size: int | None = None
-    ) -> Any:
-        """Build the row source of the seeds of a cohort, named "seed".
-
-        The seeds are a VALUES clause, with a typed column for each column of
-        the cohort, which each dialect sends to the database as a parameter.
-
-        :param values: List of value tuples from the resolved cohort.
-        :type values: list[tuple]
-
-        :param types: Type of each column of the cohort data.
-        :type types: list[TypeEngine]
-
-        :param chunk_size: Number of seeds of each parameter. All the seeds
-                           in one by default.
-        :type chunk_size: int
-
-        :return: SA row source.
-        :rtype: FromClause
-        """
-        # A typed column for each column of the cohort
+        # Keep each cohort or join reference once, in expression order.
         columns = []
-        for col_idx, type_ in enumerate(types):
-            columns.append(sa_column(f"c{col_idx}", type_))
-
-        # A parameter for each group of seeds, which are the rows of one
-        # table
-        size = chunk_size or len(values)
-        chunks = []
-        for i in range(0, len(values), size):
-            chunk = sa_values(*columns, name="seed").data(values[i:i + size])
-            chunks.append(chunk)
-
-        # The groups are one row source, which the database reads as one
-        # semi-join
-        seeds = chunks[0]
-        if len(chunks) > 1:
-            seeds = union_all(*[select(chunk) for chunk in chunks])
-            seeds = seeds.subquery("seed")
-        return seeds
-
-    def to_where(
-        self,
-        values: list[tuple],
-        types: list[Any],
-        chunk_size: int | None = None
-    ) -> Any:
-        """Generate a SQLAlchemy WHERE clause from pre-fetched cohort data.
-
-        The cohort data is a VALUES clause, which each dialect sends to the
-        database as one parameter.
-
-        :param values: List of value tuples from the resolved cohort.
-        :type values: list[tuple]
-
-        :param types: Type of each column of the cohort data.
-        :type types: list[TypeEngine]
-
-        :param chunk_size: Number of seeds of each parameter. All the seeds
-                           in one by default.
-        :type chunk_size: int
-
-        :return: SA ClauseElement.
-        :rtype: ClauseElement
-        """
-        # Without any seed, nothing matches
-        if not values:
-            return false()
-
-        # The seeds are the rows of one table
-        seeds = self.seed_table(values, types, chunk_size)
-
-        # Each column of the filter is compared to its column of the cohort
-        # data, or to its constant
-        conditions = []
-        for ref_idx, (col, op, ref_col) in enumerate(zip(
-            self.columns,
-            self.reference.operators,
-            self.reference.columns
-        )):
-            # A constant, such as a list of values, is compared as it is
-            if ref_idx not in self.seed_positions:
-                conditions.append(text(f"{col} {op} {ref_col}"))
-                continue
-
-            # The column of the filter, with its reference columns replaced,
-            # is compared to its column of the cohort data
-            pos = self.seed_positions[ref_idx]
-            seed = seeds.c[f"c{pos}"]
-            condition = literal_column(self.seed_expression(col)).op(op)(seed)
-
-            # A row without a value for the column does not restrict it
-            if any(row[pos] is None for row in values):
-                condition = or_(seed.is_(None), condition)
-            conditions.append(condition)
-
-        # A row of the table matches if any of the rows of the cohort data
-        # meets all the conditions
-        return exists(
-            select(literal(1)).select_from(seeds).where(and_(*conditions))
-        )
+        for expression in self.reference.columns + self.columns:
+            for reference in ColumnPair.extract_columns(expression):
+                alias = reference.split('.', 1)[0]
+                if alias in aliases and reference not in columns:
+                    columns.append(reference)
+        return columns
 
 
 class ExtractMeta:
