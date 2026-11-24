@@ -82,13 +82,19 @@ def bind_oracle_seeds_as_lobs(inputsizes, cursor, _statement, parameters,
         return
 
     # Each parameter of the seeds gets a LOB with its text
+    converted = set()
     for bind_param in inputsizes:
         if isinstance(bind_param.type, _OracleCLOB):
             name = context.compiled.bind_names[bind_param]
+            # Reused predicates can compile distinct bind objects under
+            # one parameter name. Its text must become a LOB only once.
+            if name in converted:
+                continue
             for params in parameters:
                 params[name] = cursor.connection.createlob(
                     inputsizes[bind_param], params[name]
                 )
+            converted.add(name)
 
 
 class JsonValues:
