@@ -181,7 +181,8 @@ class OracleValues(JsonValues):
             col_type = "VARCHAR2(4000)"
         else:
             col_type = self.type_sql(col.type, compiler)
-        return f"{col.name} {col_type} PATH '$[{col_idx}]'"
+        name = compiler.preparer.quote(col.name)
+        return f"{name} {col_type} PATH '$[{col_idx}]'"
 
 
 class MssqlValues(JsonValues):
@@ -204,7 +205,8 @@ class MssqlValues(JsonValues):
         if hasattr(col_type, "collation"):
             col_type.collation = None
         return (
-            f"{col.name} {self.type_sql(col_type, compiler)} '$[{col_idx}]'"
+            f"{compiler.preparer.quote(col.name)} "
+            f"{self.type_sql(col_type, compiler)} '$[{col_idx}]'"
         )
 
 
@@ -220,7 +222,8 @@ class PostgresqlValues(JsonValues):
         # the position of the column as text, which is cast to its type
         return (
             f"CAST(jt.value ->> {col_idx} AS "
-            f"{self.type_sql(col.type, compiler)}) AS {col.name}"
+            f"{self.type_sql(col.type, compiler)}) AS "
+            f"{compiler.preparer.quote(col.name)}"
         )
 
 
