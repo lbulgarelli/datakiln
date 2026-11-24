@@ -6,10 +6,10 @@ from getpass import getuser
 from pathlib import Path
 
 from datakiln.arguments import add_directory, add_export, add_include, add_log
+from datakiln.extraction.executor import ParallelExecutor
 from datakiln.extraction.exporters import MetadataExtractor
 from datakiln.extraction.models import ExtractGraph, ExtractMeta
 from datakiln.extraction.strategies import (
-    ParallelExecutor,
     StreamStrategy,
     TempTableStrategy,
 )
