@@ -324,9 +324,10 @@ def test_sweep_runs_decode_and_extract(comparison, options, monkeypatch):
 
     monkeypatch.setattr(StatementProbe, 'run', record)
     monkeypatch.setattr(comparison.strategy, 'session', session)
-    comparison.strategy.__dict__['engine'] = None
+    comparison.strategy.__dict__['engine'] = SimpleNamespace(
+        dialect=oracle.dialect())
     comparison.run(options)
-    assert len(recorded) == 24
+    assert len(recorded) == 32
     extracts = []
     for _, labels in recorded:
         if labels['kind'] == 'extract':
@@ -352,7 +353,8 @@ def test_isolated_filters_remove_other_predicates(
 
     monkeypatch.setattr(StatementProbe, 'run', record)
     monkeypatch.setattr(comparison.strategy, 'session', session)
-    comparison.strategy.__dict__['engine'] = None
+    comparison.strategy.__dict__['engine'] = SimpleNamespace(
+        dialect=oracle.dialect())
     comparison.run(options)
     assert len(recorded) == 8
     for sql, index in recorded:

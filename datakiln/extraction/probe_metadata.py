@@ -115,14 +115,14 @@ class PlanProbe(StatementProbe):  # pylint: disable=too-few-public-methods
         # No commit: closing the probe rolls back its PLAN_TABLE inserts.
 
 
-def run_extraction(probe: StatementProbe, statement: Select,
+def run_extraction(probe: StatementProbe, statement: Select | CompoundSelect,
                    labels: dict[str, Any]) -> None:
     """Compare original and disjoint queries, optionally explaining each.
 
     :param probe: Execution probe and its settings.
     :type probe: datakiln.extraction.probes.StatementProbe
     :param statement: Extraction or isolated predicate query.
-    :type statement: sqlalchemy.sql.Select
+    :type statement: sqlalchemy.sql.Select | sqlalchemy.sql.CompoundSelect
     :param labels: Strategy and comparison labels.
     :type labels: dict[str, typing.Any]
     """

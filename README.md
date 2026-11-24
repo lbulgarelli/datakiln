@@ -469,6 +469,38 @@ With `--diagnostic-explain`, each query has its own plan record, labeled
 with its `query_kind`. No additional flag enables the rewrite, and ordinary
 extraction continues to use the original query.
 
+Read-only runs additionally compare two shared-CTE query forms:
+
+| Probe kind | Query form |
+| --- | --- |
+| `extract_cte_exists` | Shared typed seed CTEs with `EXISTS`, using disjoint `UNION ALL` branches for OR groups. |
+| `extract_cte_join` | Explicit inner joins to those same CTEs, with the same branch overlap exclusions. |
+
+The suite shares a seed CTE only when both the sampled seed tuples and
+their resolved SQL types match; matching reference column names alone do
+not establish that. A shared CTE places each JSON seed relation and its
+binds in the SQL once, even when several filters or overlap exclusions
+reference it. Oracle may inline or materialize the CTE: these comparisons
+do not force either choice or guarantee that JSON is physically parsed once.
+`--diagnostic-explain` collects separate estimated plans for both forms.
+
+For numeric/date keys, CTEs use `SELECT DISTINCT` after database type
+conversion. Thus differently formatted seeds that become the same number
+cannot multiply joined source rows. The explicit join comparison requires
+direct equality predicates over the complete numeric/date seed tuple,
+with no NULL wildcard seeds. Other cases get an `unsupported` skip record
+and log message for `extract_cte_join`; the CTE-backed EXISTS probe still
+runs. In particular, string keys are excluded from the join comparison
+because source and seed collations can differ, and their CTEs retain all
+seed values. No comparison applies DISTINCT to the extracted source rows.
+
+The new probes reuse the existing samples, chunk sizes, row/time limits
+and repetitions. Records include `shared_seed_ctes`, `distinct_seed_ctes`
+and `cte_materialization: "optimizer"`. Rerun the usual command with
+`--read-only --diagnose-filters`; no additional flag enables these probes.
+These JSON/CTE comparisons are specific to read-only mode. The production
+branch and temp-table diagnostics are unchanged by them.
+
 Both modes collect source column types and index columns automatically;
 temp-table mode also collects row counts and metadata for the staged
 cohort tables after their indexes are prepared. Unavailable metadata is

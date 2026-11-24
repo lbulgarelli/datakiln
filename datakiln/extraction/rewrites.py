@@ -16,6 +16,22 @@ def _two_valued(predicate: ClauseElement) -> bool:
     return False
 
 
+def not_matched(predicate: ClauseElement) -> ClauseElement:
+    """Exclude TRUE matches while retaining FALSE and UNKNOWN.
+
+    :param predicate: Predicate from an earlier query branch.
+    :type predicate: sqlalchemy.sql.elements.ClauseElement
+    :return: NULL-safe overlap exclusion.
+    :rtype: sqlalchemy.sql.elements.ClauseElement
+    """
+    # Unwrap EXISTS so Oracle receives NOT EXISTS rather than '= 0'.
+    while isinstance(predicate, Grouping):
+        predicate = predicate.element
+    if _two_valued(predicate):
+        return not_(predicate)
+    return case((predicate, 1), else_=0) == 0
+
+
 def disjoint_union_all(statement: Select) -> CompoundSelect | None:
     """Split a top-level OR into mutually exclusive UNION ALL branches.
 
@@ -42,13 +58,7 @@ def disjoint_union_all(statement: Select) -> CompoundSelect | None:
         # NOT alone would discard UNKNOWN as well as TRUE. CASE excludes
         # only previous matches, retaining rows where a predicate was NULL.
         for earlier in previous:
-            # Negating Grouping(EXISTS) renders a boolean comparison on
-            # Oracle; unwrap it so SQLAlchemy emits a real NOT EXISTS.
-            while isinstance(earlier, Grouping):
-                earlier = earlier.element
-            exclusion = (not_(earlier) if _two_valued(earlier)
-                         else case((earlier, 1), else_=0) == 0)
-            branch = branch.where(exclusion)
+            branch = branch.where(not_matched(earlier))
         branches.append(branch)
         previous.append(predicate)
     return union_all(*branches)

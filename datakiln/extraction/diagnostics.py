@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import literal, select
 from sqlalchemy.sql.functions import count as sql_count
 
+from datakiln.extraction.cte_diagnostics import CteComparison
 from datakiln.extraction.models import ExtractMeta, FilterConfig
 from datakiln.extraction.native_diagnostics import NativeComparison
 from datakiln.extraction.probe_metadata import MetadataProbe, run_extraction
@@ -231,6 +232,9 @@ class FilterComparison:
             statement = QueryDirector.build_queries(
                 session, self.task, strategy=self)
         run_extraction(probe, statement, dict(labels, kind='extract'))
+
+        # Shared CTEs separate seed reuse from the choice of join operator.
+        CteComparison(self).run(probe, labels)
 
         # Isolate each seed predicate, keeping this variant's seed sample.
         for index, prepared in enumerate(self.filters.values()):
