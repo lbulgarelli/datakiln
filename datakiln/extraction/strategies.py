@@ -31,6 +31,7 @@ from sqlalchemy import (
 from sqlalchemy import column as sa_column
 from sqlalchemy.exc import DatabaseError, NoSuchTableError, SQLAlchemyError
 from sqlalchemy.schema import DropTable
+from sqlalchemy.sql import Select
 from sqlalchemy.sql.elements import ClauseElement
 from sqlalchemy.sql.selectable import SelectBase
 
@@ -48,7 +49,6 @@ from datakiln.extraction.models import (
     FilterConfig,
     get_table,
 )
-from datakiln.extraction.renderers import QueryDirector, SQLGenerator
 from datakiln.metadata.database import DatabaseMeta, Session
 
 logger = logging.getLogger(__name__)
@@ -127,6 +127,26 @@ class ExecutionStrategy(ABC):
                 if hasattr(self._local, "session"):
                     del self._local.session
 
+    def base_select(self, schema: str | None, table: str) -> Select:
+        """Select the source columns in their database order.
+
+        :param schema: Database schema name.
+        :type schema: str, optional
+
+        :param table: Table name.
+        :type table: str
+
+        :return: SA Select statement.
+        :rtype: Select
+        """
+        # Read column names and types so the source columns are listed in
+        # their database order, without grouping or deduplicating values.
+        columns = []
+        for info in inspect(self.engine).get_columns(table, schema=schema):
+            columns.append(Column(info["name"], info["type"]))
+        src = Table(table, MetaData(), *columns, schema=schema).alias("src")
+        return select(*src.c)
+
     def build_queries(self, task: ExtractMeta) -> SelectBase:
         """Build the extraction SA Select statement.
 
@@ -136,7 +156,28 @@ class ExecutionStrategy(ABC):
         :return: SA Select statement.
         :rtype: sqlalchemy.sql.selectable.SelectBase
         """
-        return QueryDirector.build_queries(task, strategy=self)
+        # Attach all filter joins through one statement builder.
+        stmt = self.base_select(task.schema, task.table)
+        queries = CohortFilters(stmt)
+
+        # Each query has one seed context so filters can reuse seed CTEs.
+        filters = []
+        seeds = SeedContext(self.engine.dialect, task.chunk_size)
+        for filter_group in task.filters:
+            group_filters = []
+
+            for filter_config in filter_group:
+                group_filters.append(self.process_filter(
+                    filter_config, task, queries, seeds
+                ))
+            filters.append(group_filters)
+
+        # If no filters, return the base statement
+        if not filters:
+            return stmt
+
+        # The joins are already attached; combine their match conditions.
+        return queries.build(filters)
 
     @property
     def is_read_only(self) -> bool:
@@ -685,9 +726,7 @@ class StreamStrategy(ExecutionStrategy):
         """Whether the database accepts the filter with these types, which it
         tells from a statement that does not return any row."""
         # The filter with one seed, which returns no row
-        source = SQLGenerator.base_select(
-            task.schema, task.table, self.engine
-        )
+        source = self.base_select(task.schema, task.table)
         queries = CohortFilters(source)
         seeds = SeedContext(self.engine.dialect, task.chunk_size)
         seed_filter = SeedFilter(filter_config, cohort_data, types, seeds)
