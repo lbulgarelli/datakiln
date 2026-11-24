@@ -11,6 +11,7 @@ from datakiln import (
     show_graph,
 )
 from datakiln.arguments import setup_logging
+from datakiln.extraction.diagnostics import report_path
 
 # Name of each command, with what runs it, what it does and the log it writes
 COMMANDS = [
@@ -67,6 +68,11 @@ def main(args: list[str] | None = None):
     :type args: list[str]
     """
     args = get_parser().parse_args(args)
+    diagnostic = getattr(args, 'diagnose_filters', False)
+    if diagnostic:
+        # Concurrent diagnostic runs must not overwrite a shared extract.log.
+        args.diagnostic_report = report_path(args)
+        args.log_file = f'{args.diagnostic_report}.log'
     if args.log_file:
-        setup_logging(args.stdout, args.log_file)
+        setup_logging(args.stdout, args.log_file, overwrite=not diagnostic)
     args.run(args)

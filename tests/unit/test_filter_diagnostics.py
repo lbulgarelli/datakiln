@@ -4,20 +4,30 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import Integer, create_engine, literal, select, union_all
+from sqlalchemy import (
+    Integer,
+    create_engine,
+    event,
+    literal,
+    select,
+    union_all,
+)
 from sqlalchemy.dialects import oracle
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, NoSuchTableError
 
-from datakiln import build_dbms
+from datakiln import build_dbms, cli
 from datakiln.cli import get_parser
 from datakiln.extraction import probes
 from datakiln.extraction.diagnostics import (
     DiagnosticStrategy,
     FilterComparison,
     PreparedFilter,
+    TempDiagnosticStrategy,
     configure,
 )
 from datakiln.extraction.models import ExtractGraph, ExtractMeta, FilterConfig
+from datakiln.extraction.native_diagnostics import NativeComparison
+from datakiln.extraction.probe_metadata import MetadataProbe
 from datakiln.extraction.probes import ProbeOptions, StatementProbe
 from datakiln.extraction.renderers import QueryDirector
 from datakiln.extraction.strategies import StreamStrategy
@@ -198,8 +208,83 @@ def test_timeout_allows_next_probe(options, monkeypatch, engine):
     assert 'private timeout detail' not in options.output.read_text()
 
 
-def test_oracle_timeout_restored(options, monkeypatch):
-    """Test Oracle call timeouts are bounded and then restored."""
+def test_failed_probe_discards_connection(options, monkeypatch, engine):
+    """Test a failed probe invalidates its pooled database connection."""
+    discarded = []
+    event.listen(engine, 'invalidate',
+                 lambda *_args: discarded.append(True))
+    probe = StatementProbe(engine, options)
+
+    def timeout(_connection, _statement, _record):
+        raise DBAPIError(None, None, RuntimeError('timeout'))
+
+    monkeypatch.setattr(probe, '_execute', timeout)
+    probe.run(select(literal(1)),
+              {'table': 'source.results', 'kind': 'extract'})
+    assert discarded == [True]
+
+
+def test_driver_full_code_is_preserved(options, monkeypatch, engine):
+    """Test driver timeout codes survive when the Oracle code is zero."""
+    detail = SimpleNamespace(code=0, full_code='DPY-4024')
+    probe = StatementProbe(engine, options)
+
+    def timeout(_connection, _statement, _record):
+        raise DBAPIError(None, None, RuntimeError(detail))
+
+    monkeypatch.setattr(probe, '_execute', timeout)
+    result = probe.run(select(literal(1)),
+                       {'table': 'source.results', 'kind': 'extract'})
+    assert result['database_full_code'] == 'DPY-4024'
+
+
+def test_fetch_failure_invalidates_before_cursor_cleanup(options):
+    """Test a broken fetch invalidates before attempting cursor cleanup."""
+    actions = []
+
+    def broken_fetch(_size):
+        raise DBAPIError(None, None, RuntimeError('DPY-4024: timeout'))
+
+    result = SimpleNamespace(fetchmany=broken_fetch,
+                             close=lambda: actions.append('close_cursor'))
+    driver = SimpleNamespace(call_timeout=123)
+    connection = SimpleNamespace(
+        invalidated=False, execute=lambda _query: result,
+        connection=SimpleNamespace(driver_connection=driver))
+
+    def invalidate():
+        connection.invalidated = True
+        actions.append('invalidate')
+
+    connection.invalidate = invalidate
+
+    @contextmanager
+    def connect():
+        yield connection
+
+    engine = SimpleNamespace(dialect=oracle.dialect(), connect=connect)
+    record = StatementProbe(engine, options).run(select(literal(1)), {
+        'table': 'source.results', 'kind': 'extract'})
+    assert actions == ['invalidate']
+    assert record['phase'] == 'first_fetch'
+    assert record['database_full_code'] == 'DPY-4024'
+    assert record['first_fetch_seconds'] >= 0
+
+
+@pytest.mark.parametrize('strategy_class', [
+    DiagnosticStrategy, TempDiagnosticStrategy])
+def test_probe_cleanup_does_not_drop_uncreated_targets(
+        tmp_path, options, strategy_class):
+    """Test executor cleanup skips staging tables never created for probes."""
+    strategy = strategy_class({}, tmp_path, options)
+    # No connection parameters are available; attempting source DDL fails.
+    strategy.drop('tmp_uncreated_target')
+    assert not strategy.created_tables
+
+
+@pytest.mark.parametrize('metadata_error', [False, True])
+def test_oracle_timeout_restored(options, monkeypatch, metadata_error):
+    """Test healthy connections recover their timeout after metadata errors."""
     driver = SimpleNamespace(call_timeout=123)
     connection = SimpleNamespace(
         connection=SimpleNamespace(driver_connection=driver),
@@ -215,6 +300,8 @@ def test_oracle_timeout_restored(options, monkeypatch):
 
     def execute(_connection, _statement, record):
         calls.append(driver.call_timeout)
+        if metadata_error:
+            raise NoSuchTableError('not_present')
         record['status'] = 'complete'
 
     monkeypatch.setattr(probe, '_execute', execute)
@@ -239,7 +326,7 @@ def test_sweep_runs_decode_and_extract(comparison, options, monkeypatch):
     monkeypatch.setattr(comparison.strategy, 'session', session)
     comparison.strategy.__dict__['engine'] = None
     comparison.run(options)
-    assert len(recorded) == 12
+    assert len(recorded) == 20
     extracts = []
     for _, labels in recorded:
         if labels['kind'] == 'extract':
@@ -247,6 +334,61 @@ def test_sweep_runs_decode_and_extract(comparison, options, monkeypatch):
     assert [labels['seed_counts'] for labels in extracts] == [
         [2, 2], [3, 3], [3, 3], [3, 3]]
     assert [labels['chunk_size'] for labels in extracts] == [2, 2, 2, 0]
+
+
+def test_isolated_filters_remove_other_predicates(
+        comparison, options, monkeypatch):
+    """Test isolated queries contain just one of the original predicates."""
+    recorded = []
+
+    def record(_self, statement, labels):
+        if labels['kind'] == 'extract_filter':
+            recorded.append((str(statement.compile(dialect=oracle.dialect())),
+                             labels['filter_index']))
+
+    @contextmanager
+    def session():
+        yield None
+
+    monkeypatch.setattr(StatementProbe, 'run', record)
+    monkeypatch.setattr(comparison.strategy, 'session', session)
+    comparison.strategy.__dict__['engine'] = None
+    comparison.run(options)
+    assert len(recorded) == 8
+    for sql, index in recorded:
+        assert ('src.order_id' in sql) == (index == 0)
+        assert ('src.other_id' in sql) == (index == 1)
+
+
+def test_native_comparison_keeps_staging_predicates(
+        comparison, options, monkeypatch):
+    """Test temp-table probes use native predicates and no JSON seeds."""
+    strategy = TempDiagnosticStrategy({}, comparison.strategy.directory,
+                                      options)
+    strategy.__dict__['engine'] = None
+    strategy.cohorts['source.orders'] = 'tmp_orders'
+    recorded = []
+
+    @contextmanager
+    def session():
+        yield None
+
+    monkeypatch.setattr(strategy, 'session', session)
+    monkeypatch.setattr(strategy, 'process_filter',
+                        lambda config, *_args: [config.to_exists(strategy)])
+    monkeypatch.setattr(MetadataProbe, 'run', lambda *_args: None)
+    monkeypatch.setattr(StatementProbe, 'run', lambda _self, query, labels:
+                        recorded.append((str(query.compile(
+                            dialect=oracle.dialect())), labels)))
+    NativeComparison(strategy, comparison.task).run(options)
+    assert len(recorded) == 3
+    assert ' OR ' in recorded[0][0]
+    for sql, labels in recorded:
+        assert 'tmp_orders' in sql
+        assert 'JSON_TABLE' not in sql
+        assert labels['strategy'] == 'temptable'
+    assert 'src.other_id' not in recorded[1][0]
+    assert 'src.order_id' not in recorded[2][0]
 
 
 def diagnostic_args(tmp_path):
@@ -265,6 +407,20 @@ def test_configuration_refuses_overwrite(tmp_path):
     with pytest.raises(FileExistsError):
         configure(args, ExtractGraph([ExtractMeta('results', 'source')]))
     assert args.diagnostic_report.read_text() == 'keep me'
+
+
+def test_cli_uses_a_separate_diagnostic_log(tmp_path, monkeypatch):
+    """Test diagnostic logging uses the report path and refuses overwrites."""
+    args = diagnostic_args(tmp_path)
+    seen = []
+    args.run = lambda parsed: seen.append(parsed.diagnostic_report)
+    monkeypatch.setattr(cli, 'get_parser', lambda: SimpleNamespace(
+        parse_args=lambda _args: args))
+    monkeypatch.setattr(cli, 'setup_logging',
+                        lambda *_args, **kwargs: seen.append(kwargs))
+    cli.main([])
+    assert args.log_file == f'{args.diagnostic_report}.log'
+    assert seen == [{'overwrite': False}, args.diagnostic_report]
 
 
 @pytest.mark.parametrize('option,value', [
@@ -308,6 +464,7 @@ def test_target_exports_are_not_written(tmp_path, options, monkeypatch):
     task = ExtractMeta('results', 'source')
     strategy = DiagnosticStrategy({}, tmp_path, options)
     strategy.graph = ExtractGraph([task])
+    strategy.__dict__['engine'] = None
     existing = tmp_path / 'results.csv.gz'
     existing.write_bytes(b'existing export')
     calls = []
@@ -315,16 +472,18 @@ def test_target_exports_are_not_written(tmp_path, options, monkeypatch):
                         lambda self, *_args: setattr(self, 'filters', {1: 1}))
     monkeypatch.setattr(FilterComparison, 'run',
                         lambda _self, settings: calls.append(settings))
+    monkeypatch.setattr(MetadataProbe, 'run', lambda *_args: None)
     strategy.execute(task, export_to=tmp_path)
     assert calls == [options]
     assert existing.read_bytes() == b'existing export'
 
 
-def test_command_uses_serial_read_only_strategy(tmp_path, monkeypatch):
-    """Test the public command forces serial read-only diagnostics."""
+@pytest.mark.parametrize('read_only', [True, False])
+def test_command_uses_selected_strategy(tmp_path, monkeypatch, read_only):
+    """Test the public command honors the strategy and forces serial work."""
     args = diagnostic_args(tmp_path)
     args.parallel = 4
-    assert not args.read_only
+    args.read_only = read_only
     extract = tmp_path / 'extract'
     extract.mkdir()
     (extract / 'results.json').write_text(json.dumps({
@@ -344,10 +503,13 @@ def test_command_uses_serial_read_only_strategy(tmp_path, monkeypatch):
     monkeypatch.setattr(build_dbms, 'ParallelExecutor', Executor)
     monkeypatch.setattr(DiagnosticStrategy, 'cleanup',
                         lambda _self: calls.append('cleanup'))
+    monkeypatch.setattr(TempDiagnosticStrategy, 'cleanup',
+                        lambda _self: calls.append('cleanup'))
     build_dbms.run(args)
     strategy, graph, workers = calls[0]
-    assert isinstance(strategy, DiagnosticStrategy)
-    assert strategy.is_read_only
+    expected = DiagnosticStrategy if read_only else TempDiagnosticStrategy
+    assert isinstance(strategy, expected)
+    assert strategy.is_read_only == read_only
     assert workers == 1
     assert {task.full_name for task in graph.export} == {'source.results'}
     assert calls[1:] == [tmp_path / 'data', 'cleanup']

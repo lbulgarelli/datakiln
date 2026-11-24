@@ -1,13 +1,14 @@
 """Measure read-only statements without storing their rows or bind values."""
 import json
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
 from typing import Any
 
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.sql import Select
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,26 @@ class ProbeOptions:
     max_rows: int = 10000
     timeout: int = 60
     repeats: int = 1
+    explain: bool = False
+
+
+def error_fields(error: SQLAlchemyError) -> dict[str, Any]:
+    """Keep driver codes without SQL, parameters or database message text.
+
+    :param error: Wrapped database exception.
+    :type error: sqlalchemy.exc.SQLAlchemyError
+    :return: Safe error classification for a report.
+    :rtype: dict[str, typing.Any]
+    """
+    original = getattr(error, 'orig', error)
+    detail = original.args[0] if original.args else None
+    codes = re.findall(r'\b(?:DPY|DPI|ORA)-\d+', str(original))
+    full_code = getattr(detail, 'full_code', None)
+    return {'status': 'database_error',
+            'error_type': type(original).__name__,
+            'database_code': getattr(detail, 'code', None),
+            'database_full_code': full_code or next(iter(codes), None),
+            'database_codes': list(dict.fromkeys(codes))}
 
 
 def write_record(path: Path, record: dict[str, Any]) -> None:
@@ -83,14 +104,17 @@ class StatementProbe:  # pylint: disable=too-few-public-methods
                 previous = self._set_timeout(driver)
                 try:
                     self._execute(connection, statement, record)
+                except DBAPIError:
+                    # Discard even apparently healthy failed connections;
+                    # Oracle call timeouts can leave unusable pooled state.
+                    if not connection.invalidated:
+                        connection.invalidate()
+                    raise
                 finally:
                     if previous is not None and not connection.invalidated:
                         driver.call_timeout = previous
-        except DBAPIError as error:
-            record.update(status='database_error',
-                          error_type=type(error.orig).__name__)
-            detail = error.orig.args[0] if error.orig.args else None
-            record['database_code'] = getattr(detail, 'code', None)
+        except SQLAlchemyError as error:
+            record.update(error_fields(error))
         record['elapsed_seconds'] = monotonic() - started
         write_record(self.options.output, dict(record, event='finish'))
         logger.info("Probe '%s': Finished %s.", record['table'], record)
@@ -112,13 +136,32 @@ class StatementProbe:  # pylint: disable=too-few-public-methods
         started = monotonic()
         record['phase'] = 'execute'
         write_record(self.options.output, dict(record, event='phase'))
-        with connection.execute(statement.execution_options(
-                stream_results=True, skip_formatting=True)) as result:
+        try:
+            result = connection.execute(statement.execution_options(
+                stream_results=True, skip_formatting=True))
+        except DBAPIError:
             record['execute_seconds'] = monotonic() - started
-            record['phase'] = 'first_fetch'
-            write_record(self.options.output, dict(record, event='phase'))
-            logger.info("Probe '%s': Fetching first row.", record['table'])
-            fetched = monotonic()
+            raise
+        record['execute_seconds'] = monotonic() - started
+        try:
+            self._read(result, record, started)
+        except DBAPIError:
+            # Invalidate before cursor cleanup, which otherwise tries to
+            # close a cursor on an already disconnected Oracle connection.
+            connection.invalidate()
+            raise
+        finally:
+            if not connection.invalidated:
+                result.close()
+
+    def _read(self, result: Any, record: dict[str, Any],
+              started: float) -> None:
+        """Measure first-row latency separately from batch fetching."""
+        record['phase'] = 'first_fetch'
+        write_record(self.options.output, dict(record, event='phase'))
+        logger.info("Probe '%s': Fetching first row.", record['table'])
+        fetched = monotonic()
+        try:
             first = result.fetchmany(1)
             record['first_fetch_seconds'] = monotonic() - fetched
             record['rows_fetched'] = len(first)
@@ -127,7 +170,11 @@ class StatementProbe:  # pylint: disable=too-few-public-methods
                 record['status'] = 'complete'
             else:
                 self._fetch(result, record, started)
+        finally:
+            # Failed calls need their timings too, before connection cleanup.
             record['fetch_seconds'] = monotonic() - fetched
+            if 'first_fetch_seconds' not in record:
+                record['first_fetch_seconds'] = record['fetch_seconds']
 
     def _fetch(self, result: Any, record: dict[str, Any],
                started: float) -> None:

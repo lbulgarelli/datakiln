@@ -56,7 +56,8 @@ def add_export(parser: ArgumentParser):
                              "tables.")
 
 
-def setup_logging(stdout: bool, log_file: str):
+def setup_logging(stdout: bool, log_file: str, *,
+                  overwrite: bool = True) -> None:
     """Sets up logging for a command.
 
     :param stdout: Whether to output logs to standard output.
@@ -64,8 +65,11 @@ def setup_logging(stdout: bool, log_file: str):
 
     :param log_file: Path to the log file.
     :type log_file: str
+
+    :param overwrite: Whether an existing log file may be replaced.
+    :type overwrite: bool
     """
-    handlers = [logging.FileHandler(log_file, mode="w")]
+    handlers = [logging.FileHandler(log_file, mode="w" if overwrite else "x")]
     if stdout:
         handlers.append(logging.StreamHandler(sys.stdout))
 

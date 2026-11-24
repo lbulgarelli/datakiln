@@ -100,8 +100,9 @@ def run(args):
     # Initialize execution strategy
     if args.diagnose_filters:
         options = diagnostics.configure(args, graph)
-        strategy = diagnostics.DiagnosticStrategy(
-            db_params, directory, options)
+        strategy_class = (diagnostics.DiagnosticStrategy if args.read_only
+                          else diagnostics.TempDiagnosticStrategy)
+        strategy = strategy_class(db_params, directory, options)
     elif args.read_only:
         strategy = StreamStrategy(db_params, directory)
     else:

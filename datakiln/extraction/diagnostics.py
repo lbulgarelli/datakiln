@@ -6,20 +6,36 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import literal, select
 from sqlalchemy.sql.functions import count as sql_count
 
 from datakiln.extraction.models import ExtractMeta, FilterConfig
+from datakiln.extraction.native_diagnostics import NativeComparison
+from datakiln.extraction.probe_metadata import MetadataProbe, run_extraction
 from datakiln.extraction.probes import (
     ProbeOptions,
     StatementProbe,
     write_record,
 )
-from datakiln.extraction.renderers import QueryDirector
-from datakiln.extraction.strategies import StreamStrategy
+from datakiln.extraction.renderers import QueryDirector, SQLGenerator
+from datakiln.extraction.strategies import StreamStrategy, TempTableStrategy
 from datakiln.metadata.database import Session
 
 logger = logging.getLogger(__name__)
+
+
+def report_path(args: Namespace) -> Path:
+    """Choose the shared filename prefix of a diagnostic report and log.
+
+    :param args: Parsed diagnostic command arguments.
+    :type args: argparse.Namespace
+    :return: Explicit path or a new timestamped report path.
+    :rtype: pathlib.Path
+    """
+    if args.diagnostic_report:
+        return args.diagnostic_report
+    stamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    return Path(args.directory) / f'filter-diagnostics-{stamp}.jsonl'
 
 
 def add_arguments(parser: ArgumentParser) -> None:
@@ -29,17 +45,21 @@ def add_arguments(parser: ArgumentParser) -> None:
     :type parser: argparse.ArgumentParser
     """
     parser.add_argument('--diagnose-filters', action='store_true',
-                        help='Probe the --include tables in read-only mode, '
-                             'extracting their prerequisites serially.')
+                        help='Probe the --include tables with the selected '
+                             'strategy, preparing prerequisites serially.')
+    parser.add_argument('--diagnostic-explain', action='store_true',
+                        help='Write estimated plans to PLAN_TABLE and read '
+                             'structural plan metadata; requires its access.')
     parser.add_argument('--diagnostic-report', type=Path,
                         help='New JSON lines report; existing files refuse '
                              'to be overwritten.')
     parser.add_argument('--diagnostic-seed-counts', type=int, nargs='+',
                         default=[100, 1000, 10000, 0],
-                        help='Seed counts to compare; 0 uses all seeds.')
+                        help='Read-only seed counts to compare; '
+                             '0 uses all seeds.')
     parser.add_argument('--diagnostic-chunk-sizes', type=int, nargs='+',
                         default=[10000, 50000, 0],
-                        help='Parameter chunk sizes with all seeds fixed; '
+                        help='Read-only chunk sizes with all seeds fixed; '
                              '0 puts each filter in one parameter.')
     parser.add_argument('--diagnostic-max-rows', type=int, default=10000,
                         help='Maximum fetched rows per probe; 0 fetches all.')
@@ -77,21 +97,23 @@ def configure(args: Namespace, graph: Any) -> ProbeOptions:
                              'other; run them separately.')
 
     # Use a distinct report and refuse any explicitly reused destination.
-    stamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
-    path = args.diagnostic_report or (
-        Path(args.directory) / f'filter-diagnostics-{stamp}.jsonl')
+    path = report_path(args)
     with path.open('x', encoding='utf-8'):
         pass
     options = ProbeOptions(
         path, tuple(args.diagnostic_seed_counts),
         tuple(args.diagnostic_chunk_sizes), args.diagnostic_max_rows,
-        args.diagnostic_timeout, args.diagnostic_repeats)
+        args.diagnostic_timeout, args.diagnostic_repeats,
+        args.diagnostic_explain)
     write_record(path, {'event': 'settings',
+                        'strategy': 'read_only' if args.read_only
+                        else 'temptable',
                         'seed_counts': options.seed_counts,
                         'chunk_sizes': options.chunk_sizes,
                         'max_rows': options.max_rows,
                         'timeout_seconds': options.timeout,
-                        'repeats': options.repeats})
+                        'repeats': options.repeats,
+                        'explain': options.explain})
     logger.info("Report '%s': Running filter diagnostics serially.", path)
     return options
 
@@ -186,7 +208,8 @@ class FilterComparison:
     def _run_variant(self, probe: StatementProbe, variant: str,
                      repeat: int) -> None:
         """Decode each filter separately, then run the combined query."""
-        labels = {'table': self.task.full_name, 'variant': variant,
+        labels = {'table': self.task.full_name, 'strategy': 'read_only',
+                  'variant': variant,
                   'repeat': repeat, 'seed_limit': self.seed_count,
                   'chunk_size': self.chunk_size, 'seed_counts': []}
         for prepared in self.filters.values():
@@ -207,15 +230,25 @@ class FilterComparison:
         with self.strategy.session() as session:
             statement = QueryDirector.build_queries(
                 session, self.task, strategy=self)
-        probe.run(statement, dict(labels, kind='extract'))
+        run_extraction(probe, statement, dict(labels, kind='extract'))
+
+        # Isolate each seed predicate, keeping this variant's seed sample.
+        for index, prepared in enumerate(self.filters.values()):
+            isolated = SQLGenerator.base_select(
+                self.task.schema, self.task.table).where(
+                    prepared.config.to_where(
+                        prepared.sample(self.seed_count), prepared.types,
+                        self.chunk_size))
+            run_extraction(probe, isolated, dict(
+                labels, kind='extract_filter', filter_index=index))
 
 
-class DiagnosticStrategy(StreamStrategy):
+class DiagnosticMixin:
     """Extract prerequisites normally and probe selected terminal tasks."""
 
     def __init__(self, db_params: dict, directory: Path,
                  options: ProbeOptions):
-        """Configure a serial, read-only diagnostic extraction.
+        """Configure a serial diagnostic extraction with either strategy.
 
         :param db_params: Source connection parameters.
         :type db_params: dict
@@ -226,6 +259,16 @@ class DiagnosticStrategy(StreamStrategy):
         """
         super().__init__(db_params, directory)
         self.options = options
+
+    def drop(self, name: str) -> None:
+        """Clean up prerequisites created by this run, leaving probes alone.
+
+        :param name: Temporary name passed by the extraction executor.
+        :type name: str
+        """
+        # Targets are measured without creating their export or staging table.
+        if name in self.created_tables:
+            super().drop(name)
 
     def execute(self, task: ExtractMeta, export_to: Path | None = None):
         """Probe targets without overwriting their existing data files.
@@ -243,9 +286,24 @@ class DiagnosticStrategy(StreamStrategy):
                      {'event': 'prepare', 'table': task.full_name})
         logger.info("Table '%s': Preparing filter diagnostics.",
                     task.full_name)
-        comparison = FilterComparison(self, task)
-        if not comparison.filters:
-            raise ValueError(
-                f"No seed filters to diagnose for '{task.full_name}'")
+        mode = 'read_only' if self.is_read_only else 'temptable'
+        metadata = MetadataProbe(self.engine, self.options)
+        metadata.run(select(literal(1)), {
+            'table': task.full_name, 'kind': 'metadata', 'strategy': mode})
+        if self.is_read_only:
+            comparison = FilterComparison(self, task)
+            if not comparison.filters:
+                raise ValueError(
+                    f"No seed filters to diagnose for '{task.full_name}'")
+        else:
+            comparison = NativeComparison(self, task)
         comparison.run(self.options)
         return None
+
+
+class DiagnosticStrategy(DiagnosticMixin, StreamStrategy):
+    """Diagnose JSON seed filters with read-only source access."""
+
+
+class TempDiagnosticStrategy(DiagnosticMixin, TempTableStrategy):
+    """Diagnose native predicates with staged source cohorts."""

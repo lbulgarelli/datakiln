@@ -413,19 +413,23 @@ tables with `--include`:
 ```bash
 datakiln extract dbms dataset --dialect oracle --host source.example.org \
     --port 1521 --database ORCL --user analyst --stdout \
-    --diagnose-filters --include clarity.ord_lab_perform clarity.spec_test_rel
+    --read-only --diagnose-filters \
+    --include clarity.ord_lab_perform clarity.spec_test_rel
 ```
 
-The suite uses the read-only strategy, with one worker, regardless of
-`--read-only` and `--parallel`. It extracts the prerequisite tables normally
-into local temporary files, then probes the named tables without writing
-their rows or replacing their existing exports. It creates no source
-tables and needs no Oracle session-view privileges. Prerequisite extraction
+The suite honors `--read-only`: with it, prerequisites use local temporary
+files and filters use JSON seeds; without it, prerequisites and cohorts
+use the normal source staging tables and their native predicates. Both
+modes run with one worker regardless of `--parallel`, and report their
+strategy explicitly. Earlier versions of this branch always forced the
+read-only strategy, so omitting `--read-only` did not test temp-table mode.
+Target rows are discarded without replacing their existing exports.
+No Oracle session-view privileges are needed. Prerequisite extraction
 and filter preparation use the usual extraction behavior and are not covered
 by probe timeouts. Targets cannot depend on each other: diagnose those in
 separate runs. This mode requires data extraction and refuses `--metadata`.
 
-For each target, the suite loads and types its seeds once, sorts them for
+In read-only mode, the suite loads and types its seeds once, sorts them for
 reproducibility, and runs these comparisons:
 
 1. 100, 1,000, 10,000 and all seeds per filter, keeping the task's parameter
@@ -435,17 +439,34 @@ reproducibility, and runs these comparisons:
 Every comparison first runs `COUNT(*)` over each generated seed relation,
 measuring JSON/CLOB transfer and decoding without accessing the source
 table. It then runs the extraction query with its original columns and
-AND/OR predicates. Non-seed filters remain unchanged. Changing chunk size
+AND/OR predicates, followed by each seed predicate on its own. Isolated
+queries deliberately omit the other predicates, so their row counts can
+differ from the combined query. Non-seed filters remain unchanged in the
+combined query. Changing chunk size
 keeps all seeds in one statement; it changes the number of JSON parameters
 and `UNION ALL` branches, rather than running separate extraction queries.
 
+In temp-table mode, the suite compares the original combined native query
+against each predicate separately, using all staged cohort rows. It does
+not introduce JSON filters or apply the seed-count/chunk-size sweeps.
+Both modes collect source column types and index columns automatically;
+temp-table mode also collects row counts and metadata for the staged
+cohort tables after their indexes are prepared. Unavailable metadata is
+recorded as an error
+without stopping the query probes. The metadata records include the driver,
+server version and Oracle Thin/Thick mode when available.
+
 Results are appended immediately to a new
-`dataset/filter-diagnostics-<timestamp>.jsonl` report. The normal
-`extract.log` shows the current probe and fetching progress. The report
+`dataset/filter-diagnostics-<timestamp>.jsonl` report. A separate
+`<report-path>.log` shows the current probe and fetching progress, so
+concurrent diagnostic processes do not overwrite a shared `extract.log`.
+Both the report and its log refuse overwrites. The report
 contains settings, per-filter seed counts and types, SQL length, aggregate
 parameter sizes, execution time, first-fetch time, total fetch time and
 rows fetched. It stores no SQL text, seed values, result rows or database
-error messages. Errors retain their type and Oracle code. A `start` event
+error messages. Errors retain their type, numeric Oracle code and full
+driver code, including `DPY-4024` for call timeouts. Failed execution and
+fetch calls retain their timings. A `start` event
 without a matching `finish` identifies an interrupted probe; `phase` events
 record the transition from execution to fetching.
 
@@ -457,11 +478,24 @@ record the transition from execution to fetching.
 | `--diagnostic-max-rows N` | `10000`; zero consumes the complete result. |
 | `--diagnostic-timeout N` | `60` seconds per Oracle round trip, also checked as an elapsed budget between fetches. |
 | `--diagnostic-repeats N` | `1`; repeat the sweep to assess cache and load variation. |
+| `--diagnostic-explain` | Off; collect an estimated plan for each combined and isolated query. |
+
+`--diagnostic-explain` requires permission to insert into and read
+`PLAN_TABLE`. It explains the actual bound query, retaining the CLOB bind
+types, and reads structural plan columns directly; it does not need
+`V$SESSION`, `V$SQL_PLAN` or `DBMS_XPLAN` privileges. The probe does not
+commit the plan-table inserts. Reports include operation, object, estimated
+rows, bytes and cost, but omit predicates, SQL text and bind values. These
+are estimated plans, which can differ from the running execution plan.
+Permission or plan-generation failures are recorded and extraction probes
+continue. Leave this flag off when the account cannot write to `PLAN_TABLE`.
 
 The call timeout uses the Oracle driver's `call_timeout`. It is not a hard
 wall-clock limit for the entire probe: execution and a fetch can each take
-up to the call timeout. Database errors and call timeouts are recorded and
-the suite continues with a fresh SQLAlchemy connection. Driver connection
+up to the call timeout. Database errors and call timeouts are recorded;
+failed connections are explicitly invalidated before reuse, and fetch
+failures invalidate the connection before cursor cleanup. The suite then
+continues with another connection. Driver connection
 establishment is not bounded by this option.
 
 `complete` means the result was consumed; `row_limit` means timings cover
@@ -473,8 +507,8 @@ rather than payload decoding alone. Faster smaller subsets establish a
 size-sensitive query, but do not by themselves prove that transfer is the
 cause. Chunk-size comparisons keep cohort membership fixed. Repetitions
 can reveal cache effects, but a run against an already busy source remains
-subject to that load. The existing staging-table run is the comparison for
-whether removing the JSON payload resolves the original stall.
+subject to that load. Compare the explicitly labeled read-only and
+temp-table reports to assess whether removing JSON resolves the stall.
 
 ### Permissions
 
@@ -490,7 +524,8 @@ datakiln build dataset --grant alice bob
 
 `build`, `metadata` and `extract` write a log to the directory they run in:
 `build.log`, `metadata.log` or `extract.log` (for both sources). The log is
-overwritten on each run, and `--stdout` also prints it. `graph` writes no log.
+overwritten on each run, and `--stdout` also prints it. Filter diagnostics
+instead write a separate log beside their report. `graph` writes no log.
 
 ## Development
 
