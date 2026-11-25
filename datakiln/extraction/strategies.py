@@ -33,7 +33,6 @@ from sqlalchemy.exc import DatabaseError, NoSuchTableError, SQLAlchemyError
 from sqlalchemy.schema import DropTable
 from sqlalchemy.sql import Select
 from sqlalchemy.sql.elements import ClauseElement
-from sqlalchemy.sql.selectable import SelectBase
 
 from datakiln.extraction.exporters import DataExporter, MetadataExtractor
 from datakiln.extraction.filters import (
@@ -147,14 +146,15 @@ class ExecutionStrategy(ABC):
         src = Table(table, MetaData(), *columns, schema=schema).alias("src")
         return select(*src.c)
 
-    def build_queries(self, task: ExtractMeta) -> SelectBase:
-        """Build the extraction SA Select statement.
+    def build_queries(self, task: ExtractMeta) -> list[Select]:
+        """Build the extraction SA Select statements, one for each OR group
+        of filters.
 
         :param task: Extraction task metadata.
         :type task: ExtractMeta
 
-        :return: SA Select statement.
-        :rtype: sqlalchemy.sql.selectable.SelectBase
+        :return: SA Select statements, whose rows are written once.
+        :rtype: list[sqlalchemy.sql.Select]
         """
         # Attach all filter joins through one statement builder.
         stmt = self.base_select(task.schema, task.table)
@@ -174,9 +174,9 @@ class ExecutionStrategy(ABC):
 
         # If no filters, return the base statement
         if not filters:
-            return stmt
+            return [stmt]
 
-        # The joins are already attached; combine their match conditions.
+        # Each group of filters has its own statement.
         return queries.build(filters)
 
     @property
@@ -329,8 +329,8 @@ class TempTableStrategy(ExecutionStrategy):
         logger.info("Table '%s': Extracting.", task.full_name)
 
         with self.session() as session:
-            # All filter groups share one duplicate-preserving statement.
-            query = self.build_queries(task)
+            # Each filter group has a statement of its own.
+            queries = self.build_queries(task)
             temp_table = task.temp_name
 
             # Reflect source table to get column names and types
@@ -366,7 +366,7 @@ class TempTableStrategy(ExecutionStrategy):
             try:
                 self.csv_hashes[task.full_name] = DataExporter.stream_to_csv(
                     session,
-                    query,
+                    queries,
                     export_path,
                     table_name=task.table,
                     insert_to=dest_table,
@@ -731,7 +731,7 @@ class StreamStrategy(ExecutionStrategy):
         seeds = SeedContext(self.engine.dialect, task.chunk_size)
         seed_filter = SeedFilter(filter_config, cohort_data, types, seeds)
         condition = seed_filter.build(queries)
-        stmt = queries.build([[condition]]).limit(0)
+        stmt = queries.build([[condition]])[0].limit(0)
 
         # The database refuses the statement if the types do not fit
         try:
@@ -759,12 +759,12 @@ class StreamStrategy(ExecutionStrategy):
 
         with self.session() as session:
             # Export to a CSV file
-            query = self.build_queries(task)
+            queries = self.build_queries(task)
             export_path = target_dir / f"{task.table}.csv.gz"
             try:
                 self.csv_hashes[task.full_name] = DataExporter.stream_to_csv(
                     session,
-                    query,
+                    queries,
                     export_path,
                     table_name=task.table,
                     chunk_size=task.chunk_size,

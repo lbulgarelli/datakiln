@@ -9,11 +9,9 @@ from sqlalchemy import (
     String,
     Table,
     and_,
-    case,
     column,
     false,
     literal_column,
-    not_,
     or_,
     select,
     text,
@@ -24,8 +22,7 @@ from sqlalchemy import join as sa_join
 from sqlalchemy.engine import Dialect
 from sqlalchemy.sql import Select
 from sqlalchemy.sql.elements import ClauseElement
-from sqlalchemy.sql.expression import Exists
-from sqlalchemy.sql.selectable import CTE, FromClause, SelectBase
+from sqlalchemy.sql.selectable import CTE, FromClause
 from sqlalchemy.types import TypeEngine
 
 from datakiln.extraction.cohorts import SQLCohort
@@ -37,14 +34,15 @@ class CohortFilters:
 
     Each filter is an EXISTS over its reference, so a source row is kept or
     dropped once, however many reference rows match it, and identical
-    source rows each keep their own result. The source table is scanned
-    without numbering or sorting its rows. Filter groups are combined with
-    disjoint UNION ALL branches, because a plain OR of EXISTS predicates
-    cannot be planned as semi-joins in every database.
+    source rows keep their own result. The source table is scanned
+    without numbering or sorting its rows. Each OR group is a statement of
+    its own, a plain EXISTS that the database can plan as a semi-join.
+    A row that matches several groups is returned by each of them, and the
+    export writes it once.
     """
 
     def __init__(self, statement: Select):
-        """Keep the unfiltered statement that each branch narrows.
+        """Keep the unfiltered statement that each group narrows.
 
         :param statement: Unfiltered SELECT with explicit source columns.
         :type statement: sqlalchemy.sql.Select
@@ -81,63 +79,30 @@ class CohortFilters:
         subquery = select(literal_column('1')).select_from(reference)
         return subquery.where(and_(*conditions)).exists()
 
-    @staticmethod
-    def excluded(group: list[ClauseElement]) -> ClauseElement:
-        """Build the condition that a row matched none of a group's filters.
-
-        :param group: Match conditions combined with AND.
-        :type group: list[sqlalchemy.sql.elements.ClauseElement]
-
-        :return: Condition that holds when the group does not match.
-        :rtype: sqlalchemy.sql.elements.ClauseElement
-        """
-        # An EXISTS is never NULL, so only another kind of condition can
-        # make the group NULL.
-        nullable = False
-        for condition in group:
-            if not isinstance(condition, Exists):
-                nullable = True
-
-        # Without a NULL the negation can stay a plain NOT, which databases
-        # plan as an anti-join.
-        if not nullable:
-            return not_(and_(*group))
-
-        # A constant comparison can be NULL for a row, and NOT NULL is NULL,
-        # which would drop a row that no earlier group matched.
-        return case((and_(*group), 1), else_=0) == 0
-
-    def build(self, groups: list[list[ClauseElement]]) -> SelectBase:
-        """Combine the constructed filters using their AND/OR groups.
+    def build(self, groups: list[list[ClauseElement]]) -> list[Select]:
+        """Build one statement for each OR group of filters.
 
         :param groups: Match conditions combined with AND within each group
                        and OR between groups.
         :type groups: list[list[sqlalchemy.sql.elements.ClauseElement]]
 
-        :return: SELECT retaining each matching source row, including
-                 separate rows whose values are identical. A row matching
-                 several groups is returned once, by the first of them.
-        :rtype: sqlalchemy.sql.selectable.SelectBase
+        :return: SELECT of the rows of each group, including separate rows
+                 whose values are identical. A row that matches several
+                 groups is in the result of each of them.
+        :rtype: list[sqlalchemy.sql.Select]
         """
         # Without filters every source row is returned.
         if not groups:
-            return self.statement
+            return [self.statement]
 
-        # Each branch returns the rows of its group that no earlier group
-        # matched, so the branches never return the same source row twice.
-        branches = []
-        for position, group in enumerate(groups):
-            conditions = [and_(*group)]
-            for earlier in groups[:position]:
-                conditions.append(self.excluded(earlier))
-            branches.append(self.statement.where(*conditions))
-
-        # A single group needs no UNION ALL.
-        if len(branches) == 1:
-            return branches[0]
-
-        # The disjoint branches together return each matching row once.
-        return union_all(*branches)
+        # The OR of the groups is not one statement: the database cannot
+        # plan an OR of EXISTS as semi-joins, nor the exclusion of the rows
+        # of the earlier groups from a later one. Each group is a statement
+        # of its own.
+        statements = []
+        for group in groups:
+            statements.append(self.statement.where(and_(*group)))
+        return statements
 
 
 class FilterBuilder:
