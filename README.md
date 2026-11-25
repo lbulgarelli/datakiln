@@ -87,7 +87,8 @@ Every command takes the directory of the dataset:
 
 ```
 dataset/
-├── .env             # Database connection
+├── .build.env       # Database to build (password...)
+├── .extract.env     # Source to extract from (optional)
 ├── .dataignore      # Files to skip (optional)
 ├── data/            # Data files, one for each table
 ├── metadata/        # Table metadata, one JSON file for each table
@@ -106,18 +107,24 @@ they are not built: that dataset builds them in the same database.
 
 ### Environment
 
-The connection to the database is set in the `.env` file of the dataset
-directory. All of the variables are optional and have the defaults below, but
-the file itself must exist to build the database.
+The connections, with their passwords, are set in files of the dataset
+directory, which stay out of Git, not on the command line.
+
+`.build.env` sets the database that `build` writes to. All of the variables
+are optional and have the defaults below, but the file itself must exist to
+build the database.
 
 | Variable | Default | |
 | --- | --- | --- |
 | `DB_USER` | the current user | |
+| `DB_PASSWORD` | none | |
 | `DB_HOST` | `localhost` | |
 | `DB_PORT` | `5432` | |
 | `DB_NAME` | `postgres` | Created if it does not exist. |
 | `DB_DIALECT` | `postgresql` | The DBMS of the database to build. |
 | `DB_ISOLATION_LEVEL` | `READ COMMITTED` | Transaction isolation level of the connection. |
+| `DB_DRIVER` | of the dialect | Python package that connects. |
+| `DB_OPTIONS` | none | Options of the connection, as a query string. |
 
 ```bash
 DB_USER=analyst
@@ -125,10 +132,9 @@ DB_HOST=db.example.org
 DB_NAME=study
 ```
 
-There is no variable for the database password. The connection uses the
-password mechanism of the DBMS, for example:
-
-- PostgreSQL: a `~/.pgpass` file or the `PGPASSWORD` environment variable.
+Without `DB_PASSWORD`, the connection uses the password mechanism of the
+DBMS, for example a `~/.pgpass` file or the `PGPASSWORD` environment variable
+for PostgreSQL.
 
 `DB_NAME` also names the read role the build creates (see
 [Permissions](#permissions)).
@@ -376,25 +382,43 @@ the cohort or another extracted table. Chains of `join`, comparison
 download are also available. The format is documented in
 [`datakiln/extraction/models.py`](https://github.com/lbulgarelli/datakiln/blob/main/datakiln/extraction/models.py).
 
+The source is set in `.extract.env`, which is required and has the same
+variables as `.build.env`:
+
 ```bash
-datakiln extract dbms dataset --dialect oracle --host source.example.org --port 1521 \
-    --database ORCL --user analyst --metadata
+DB_DIALECT=oracle
+DB_HOST=source.example.org
+DB_PORT=1521
+DB_NAME=ORCL
+DB_USER=analyst
+DB_PASSWORD=...
 ```
+
+```bash
+datakiln extract dbms dataset --metadata
+```
+
+`extract redcap` reads `REDCAP_API_URL` and `REDCAP_API_KEY` from the same
+file.
 
 A SQL Server source with a domain user, through `pyodbc`, which needs the name
 of the ODBC driver, and the option to trust the certificate of the server:
 
 ```bash
-datakiln extract dbms dataset --dialect mssql --host source.example.org --port 1433 \
-    --database EPIC --user 'DOMAIN\analyst' --options 'driver=FreeTDS&TrustServerCertificate=yes'
+DB_DIALECT=mssql
+DB_HOST=source.example.org
+DB_PORT=1433
+DB_NAME=EPIC
+DB_USER=DOMAIN\analyst
+DB_OPTIONS=driver=FreeTDS&TrustServerCertificate=yes
 ```
+
+`DB_DRIVER` is the SQLAlchemy driver of the source, if not the default of the
+dialect (`psycopg2`, `oracledb` or `pyodbc`). `mssqlpython` needs SQLAlchemy
+2.1.
 
 | Option | |
 | --- | --- |
-| `--dialect`, `--host`, `--port`, `--database` | The source DBMS, all required. |
-| `--user`, `--password` | The default user is the current one. |
-| `--driver` | The SQLAlchemy driver of the source, if not the default of the dialect (`psycopg2`, `oracledb` or `pyodbc`). `mssqlpython` needs SQLAlchemy 2.1. |
-| `--options` | Options of the connection to the source, as a query string. |
 | `--metadata` | Also write the JSON metadata of the tables to `metadata/`. |
 | `--no-data` | Only write the metadata, without downloading data. |
 | `--include table...` | Extract only these tables, and what they need. |
@@ -402,7 +426,7 @@ datakiln extract dbms dataset --dialect mssql --host source.example.org --port 1
 | `--parallel N` | Number of extractions at once. Default is 4. |
 
 The metadata is written in the dialect of the target database, set in the
-`.env` file of the dataset. `extract redcap` takes the same `--data` and
+`.build.env` file of the dataset. `extract redcap` takes the same `--data` and
 `--metadata` options, and `--include` and `--exclude` for forms.
 
 ### Permissions
@@ -423,7 +447,7 @@ overwritten on each run, and `--stdout` also prints it. `graph` writes no log.
 
 ## Development
 
-The unit tests need a database server that the user in `.env` can use, for
+The unit tests need a database server that the user in `.build.env` can use, for
 example:
 
 ```bash

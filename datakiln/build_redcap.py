@@ -11,6 +11,7 @@ from pathlib import Path
 from redcap import Project  # pylint: disable=import-error
 
 from datakiln.arguments import add_directory, add_export, add_include, add_log
+from datakiln.environment import EXTRACT_ENV, load_env_file
 
 logger = logging.getLogger(__name__)
 
@@ -317,10 +318,6 @@ def add_arguments(parser):
     parser.add_argument("--exclude", metavar="name", type=str, nargs="+",
                         help="Do not extract these forms.")
     add_export(parser)
-    parser.add_argument('--api-url', metavar="api_url", type=str,
-                        required=True, help='REDCap API URL.')
-    parser.add_argument('--api-key', metavar="api_key", type=str,
-                        required=True, help='REDCap API token.')
     parser.add_argument('--schema', metavar='schema', type=str,
                         help='Schema of the tables in the metadata. None '
                              'by default.')
@@ -335,9 +332,12 @@ def run(args):
     """
     directory = Path(args.directory).absolute()
 
+    # Project of the file of the source
+    config = load_env_file(directory, (EXTRACT_ENV,), required=True)
+
     # API parameters
     logger.info("REDCap: Connecting to API.")
-    project = Project(args.api_url, args.api_key)
+    project = Project(config("REDCAP_API_URL"), config("REDCAP_API_KEY"))
 
     # Get subject ID field and redcap event ID
     subject_id, event_id = get_id(project)

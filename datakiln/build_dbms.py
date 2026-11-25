@@ -2,10 +2,10 @@
 Builds table metadata from DBMS.
 """
 import logging
-from getpass import getuser
 from pathlib import Path
 
 from datakiln.arguments import add_directory, add_export, add_include, add_log
+from datakiln.environment import EXTRACT_ENV
 from datakiln.extraction.executor import ParallelExecutor
 from datakiln.extraction.exporters import MetadataExtractor
 from datakiln.extraction.models import ExtractGraph, ExtractMeta
@@ -13,7 +13,7 @@ from datakiln.extraction.strategies import (
     StreamStrategy,
     TempTableStrategy,
 )
-from datakiln.metadata.database import DRIVER, DatabaseMeta
+from datakiln.metadata.database import DatabaseMeta
 
 logger = logging.getLogger(__name__)
 
@@ -29,33 +29,6 @@ def add_arguments(parser):
     add_include(parser, "Extract only these tables, and the ones they "
                         "need.")
     add_export(parser)
-    parser.add_argument('--dialect', metavar="dialect", type=str,
-                        required=True, choices=DRIVER.keys(),
-                        help='Dialect of the source DBMS.')
-    parser.add_argument('--host', metavar="host", type=str,
-                        required=True, help='Hostname of the source DBMS.')
-    parser.add_argument('--port', metavar="port", type=str,
-                        required=True,
-                        help='Port to use when connecting to the source '
-                             'DBMS.')
-    parser.add_argument('--user', metavar="user", type=str,
-                        required=False, default=getuser(),
-                        help='Username to use when connecting to the source '
-                             'DBMS.')
-    parser.add_argument('--password', metavar="password", type=str,
-                        required=False,
-                        help='Password to use when connecting to the source '
-                             'DBMS.')
-    parser.add_argument('--database', metavar="database", type=str,
-                        required=True,
-                        help='Database to connect to in the source DBMS.')
-    parser.add_argument('--driver', metavar="driver", type=str,
-                        help='Python package that connects to the source '
-                             'DBMS, if not the default one of the dialect.')
-    parser.add_argument('--options', metavar="options", type=str, default="",
-                        help='Options of the connection to the source DBMS, '
-                             'as a query string '
-                             '(TrustServerCertificate=yes&driver=FreeTDS).')
     parser.add_argument('--read-only', action='store_true', default=False,
                         help='Run in read-only mode (no temp tables).')
     parser.add_argument('--parallel', type=int, default=4,
@@ -75,17 +48,8 @@ def run(args):
     meta_dir = Path(directory) / "metadata"
     meta_dir.mkdir(exist_ok=True)
 
-    # Connect parameters
-    db_params = {
-        "dialect": args.dialect,
-        "user": args.user,
-        "password": args.password,
-        "host": args.host,
-        "database": args.database,
-        "port": args.port,
-        "driver": args.driver,
-        "options": args.options
-    }
+    # Connect parameters, from the file of the source
+    db_params = DatabaseMeta.load_env(directory, names=(EXTRACT_ENV,))
 
     # Load all extraction metadata
     tasks = []

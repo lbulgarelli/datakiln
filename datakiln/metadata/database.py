@@ -10,7 +10,6 @@ from urllib.parse import parse_qsl
 
 import sqlglot
 import sqlparse
-from decouple import Config, RepositoryEmpty, RepositoryEnv
 from sqlalchemy import URL, Engine, create_engine, event, inspect, select, text
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlalchemy.orm.session import Session as SQLAlchemySession
@@ -18,6 +17,7 @@ from sqlalchemy.schema import CreateSchema
 from sqlalchemy_utils import create_database, database_exists
 from sqlglot import exp
 
+from datakiln.environment import BUILD_ENV, load_env_file
 from datakiln.metadata.dialect import DIALECT_MAP
 from datakiln.metadata.files import DataFiles
 from datakiln.metadata.graph import DatabaseGraph
@@ -352,32 +352,35 @@ class DatabaseMeta:
             conn.commit()
 
     @classmethod
-    def load_env(cls, directory, required=True):
+    def load_env(cls, directory, required=True,
+                 names=(BUILD_ENV,)):
         """Load environment variables.
 
         :param directory: Path for metadata directory.
         :type directory: str
 
-        :param required: Whether the directory must have a `.env` file. If
-                         not, the environment variables and the defaults are
-                         used when it does not.
+        :param required: Whether the directory must have a `.build.env`
+                         file. If not, the environment
+                         variables and the defaults are used when it does not.
         :type required: bool
+
+        :param names: Names of the files to read, the first that exists.
+        :type names: tuple[str, ...]
         """
         db_params = {}
 
-        # Load .env file
-        dotenv_file = Path(directory) / ".env"
-        if required or dotenv_file.exists():
-            env_config = Config(RepositoryEnv(dotenv_file))
-        else:
-            env_config = Config(RepositoryEmpty())
+        # Load the file of the database
+        env_config = load_env_file(directory, names, required)
 
         # Get environment variables
         db_params["user"] = env_config("DB_USER", getuser())
+        db_params["password"] = env_config("DB_PASSWORD", None)
         db_params["host"] = env_config("DB_HOST", "localhost")
         db_params["port"] = env_config("DB_PORT", "5432")
         db_params["database"] = env_config("DB_NAME", "postgres")
         db_params["dialect"] = env_config("DB_DIALECT", "postgresql")
+        db_params["driver"] = env_config("DB_DRIVER", None)
+        db_params["options"] = env_config("DB_OPTIONS", "")
         db_params["isolation_level"] = env_config(
             "DB_ISOLATION_LEVEL",
             "READ COMMITTED"

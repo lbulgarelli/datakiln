@@ -42,7 +42,7 @@ jobs:
             echo "DB_USER=postgres"
             echo "DB_HOST=localhost"
             echo "DB_NAME=postgres"
-          } > .env
+          } > .build.env
       - name: Test
         run: >
           pytest -vv tests/unit

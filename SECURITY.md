@@ -15,8 +15,7 @@ Only the latest release is supported.
 
 datakiln runs the SQL files of a dataset against a database and downloads
 data with the credentials it is given, so run only the datasets that you
-trust. The database password is read by the database driver (for PostgreSQL, a
-`.pgpass` file or `PGPASSWORD`), and not from the `.env` file. The options
-`--password` and `--api-key` of the `extract` commands take the secret on the
-command line, where it stays in the shell history, so use an account that can
-only read what you extract, and clear the history afterwards.
+trust. The passwords and the REDCap token are read from the `.build.env` and
+`.extract.env` files of the dataset, so keep those files out of Git and
+readable only by you, and use an account for the source that can only read what
+you extract.

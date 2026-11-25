@@ -24,7 +24,7 @@ pip install -e ".[test,lint,docs]"
 ```
 
 The tests build tables in a database, so they need a PostgreSQL server that
-you can create databases on, and a `.env` file in the directory you run them
+you can create databases on, and a `.build.env` file in the directory you run them
 from:
 
 ```bash
