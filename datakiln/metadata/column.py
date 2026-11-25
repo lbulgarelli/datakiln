@@ -117,7 +117,9 @@ class ColumnMeta:
         if self.description is None:
             return
 
+        # A quote in the description would end the string of the statement
+        description = self.description.replace("'", "''")
         stmt = dedent(f"""
-        COMMENT ON COLUMN {schema}.{name}.{self.rename} IS '{self.description}'
+        COMMENT ON COLUMN {schema}.{name}.{self.rename} IS '{description}'
         """)
         session.execute(stmt, **kwargs)
