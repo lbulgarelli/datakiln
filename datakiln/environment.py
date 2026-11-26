@@ -13,7 +13,6 @@ BUILD_ENV = ".build.env"
 EXTRACT_ENV = ".extract.env"
 
 
-
 def load_env_file(directory, names: tuple[str, ...],
                   required: bool = False) -> Config:
     """Reads the first of the files that exists in the directory.
